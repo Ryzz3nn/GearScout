@@ -685,10 +685,28 @@ ns:Sub("DB_READY", function()
         ns.minimapButton = UI.MinimapButton(
             "GearScoutMinimapButton",
             "Interface\\Icons\\INV_Misc_Gear_01",
-            function() ns.ToggleMain() end,
+            -- Right click opens the officer console, but only for someone who
+            -- actually has that addon. Looked up at click time rather than at
+            -- load, because the two addons have no guaranteed load order and
+            -- a plain member never has it at all. Without it, right click
+            -- simply does what left click does instead of doing nothing.
+            function(_, button)
+                local leadAddon = _G.GearScoutLead
+                if button == "RightButton" and leadAddon and leadAddon.Toggle then
+                    leadAddon.Toggle()
+                else
+                    ns.ToggleMain()
+                end
+            end,
             function(_, tip)
                 tip:SetText("GearScout", 1, 1, 1)
-                tip:AddLine("Click to open the gear and rotation coach.", 0.8, 0.84, 0.9)
+                tip:AddLine("Left click to open the gear and rotation coach.", 0.8, 0.84, 0.9)
+                -- Checked on every hover, so the line appears the moment the
+                -- console is installed and never advertises it to a member
+                -- who does not have it.
+                if _G.GearScoutLead and _G.GearScoutLead.Toggle then
+                    tip:AddLine("Right click to open the officer console.", 0.8, 0.84, 0.9)
+                end
                 tip:AddLine("Drag to move this button.", 0.55, 0.58, 0.65)
             end)
     end
