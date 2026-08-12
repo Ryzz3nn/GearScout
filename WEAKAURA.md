@@ -18,36 +18,68 @@ that shows nothing, not an error.
 
 ---
 
+## What changed: both auras are plainer now
+
+Same information, less furniture. If you are new here you can skip this
+section. If you imported an earlier version, this is what moved.
+
+- The icons are smaller, 28 pixels instead of 40, and zoomed slightly so you
+  get a clean square instead of the carved border the game art comes with.
+- No border, no background, no glow element, and the swipe overlay is off.
+- The name of whoever can cast the buff is now small white text sitting to the
+  right of the icon, instead of a larger gold `Ask Bob` caption underneath it.
+- The icons stack downwards as a list rather than sideways as a row. That is
+  what lets the names sit in clear space. In a row they overlapped each other
+  as soon as two people owed you something.
+- The text line dropped its `Missing 2:` counter and is smaller and white. It
+  now reads `Blessing of Might (Bob), Battle Shout (Carl)`.
+- The two auras start well apart on screen instead of nearly on top of each
+  other.
+
+Both auras kept their names and their internal ids, so pasting a new string
+does not give you a second copy. WeakAuras recognises it as the same aura and
+offers to update the one you already have. If you had customised the old one,
+look at the change list it shows you before you accept.
+
+---
+
 ## The fast way: import a ready made aura
 
 1. Type `/wa` in game and press Enter. The WeakAuras window opens.
 2. Click **Import** at the bottom left.
 3. Copy one of the strings below and paste it into the box, then press Enter.
 4. WeakAuras shows you what it is about to add. Click **Import**.
-5. Drag it where you want it. Both start in the middle of your screen.
+5. Drag it where you want it.
 
 Nothing appears straight away, and that is correct. Both auras are quiet until
 you are in a party or a raid and something is actually missing.
 
+Pick one. They say the same thing in two shapes, and running both just puts the
+same information on screen twice.
+
 ### Aura 1: GearScout Party Buffs
 
-A row of icons, one per missing buff, each with the buff's own icon and the
-name of the person who can cast it underneath. Imports as a dynamic group
-called `GearScout Party Buffs` with one icon inside it called
-`GearScout Buff Icon`.
+A short vertical list. One small icon per missing buff, best first, with the
+name of the person who can cast it beside it. So a missing Blessing of Might
+that Bob can cast shows the Blessing of Might icon with `Bob` next to it.
+
+Imports as a dynamic group called `GearScout Party Buffs` with one icon inside
+it called `GearScout Buff Icon`. Starts a little above the centre of your
+screen.
 
 ```
-!WA:2!1zv3UTXXv4qZM621Xf2sXofUgnduAmSduiKfGnAVixWvIuMb0I0lPSSRRk1S7ol3PA5mBMzwtrz4lkrqHVwpc8rGa5IEREcgquKha9iONGEMzjPePt2l2FoNV583CMVZw4LReCVp81JObCwlEMiGC)prCCJOijrvymo8FLjvKWNJp(Ax(bLDnXG5qybXCrtoLP83QYUTR4njGZtc59zT6ttjhE2SpRe2Le7AC0HdvcA3UeH8Epqm91F2vniL4haUG3BC(JogrJLkSIKLgc3hfs8ZIIAdIfpRs9Mv3RUh5TeW1pJGtuXEmCpI0XnJrv(Pj4beXqzkjjPwO0X3IuMwENkL9ATvJ9A3XDVQvB1zVMBxUDLTrnRx(1v86ytIA7UtN9B4vFB0oEn2RzhVgTaPtHEUml3yTGGHE84oBvUv7oTAx2RTxqmj4i9QZH0uqaiETAwPED9F44IVlkJfOOC2dXjj2utUoYI8roi46B)wudgbz1GG0e1JkLuwxKjXlHQfH2HGfTc4zkevIyCfkHJdjHwRigmDLu5mRj7tvqqfI4rrimlePIjiCMaJK0EPjWcI59TgkgCtj7Ys4b4eeoLI(UR4oZIN)vPYnRDfScskxOa4MfzacplTdr5crTxUUFrPp8rowReXfOoRpl4zOumviVSe9iui3IZCzfvYe2G)IWjsYsQcIXSUqg)DiLilxjHfM7iAKTMnnEHAbdExLjywSxIZeqM0)XRJ(QCWLMTtCLqjp59bClI5n0dMJzEs8g)shrgCaa(DZvAd68mX4)1xqXI5XI6sf8UcIuAolaawZ4cAWAlc6T4KmInjwqSIRGO(JetzHKJbX0ffBotbs9lLG9jjlTe40SvN5LLcEmqwiSkJe8EiOEU2sHhwE0L6nThpCTYGO1qLknv6J(Lww)4b2LzEUK63V4M9v2zDaHxKtR8sSGI9tiY0)B(gX8q9DOqQ0WByQO7hZbnmRwevT26i18ATa2Jxd9(ChBsd4APLBYKekJ8RVot8)XRBFq6aEgQpM9R723FAgBkXPZfa1lrWWjVeiubILF6IJiK0YaVxGYdAk4XNkjjrwkA91bkujgQkqdz8iGKYJ0fwJ8B(WQPROihR6iJXaB9RMYVFQvM5M7xd5z6TUcMT4jCX3xOqHINNlDMx2SDJMPRALHZGcUPZCFAOk2Tm85fwfaPij0k8FpjFgYRN6YZS6nZAOrdGawWnNEABcHDBSBf9nfqyBWmYcmWgffB(B2O0FDZcfZd4iotLERQc6jOxKHdHSfJA3EHmCM7MyL1Nlc3xGthU)0xMm3o2PnW0I612TYz5HANutAEgieMj42OD7gp)s8TONq(IP50RwiNElvsH(Ud)5jDt49Rki)qgHfmWe6B(K88YO4SmjzNKP134HgrMyyIFMsXznawEOvzKrCDcRRk(oJnVplFoT7SL(9fHlRUzHHR5JylIwaXfPOnqAhtdoIbCjfTAQdnTYBBTVlumiIy)ycTBS6fUMjnv9bYdyC1D96LLOOoUMgT7Q3ZXliblLM3CLqjW8YiHT7Ye9ANtXmQPvGZEQhWwjuvpJGLKwkHnlUU(MUmoJmj00CcOSt)fscWSekhAGATZbU9Wuwv9)awG(a9)u3rFO(a)ikJkJxw8ykdiYZ9QZeOze2tAKA(c(FaWWr0UoUNW59kCr(gwvbW2z8JFRT8Quz3rkEWBZpx97AEV1OHPRE5arZymunWmcSDKU8P634O9DCHyr5moYyli9GMVIE9nT6VWly(gZMz0WX7in2OwaBJhdNTnoIeNUcS)V10FA658q4mm5W0pF2VrzoiSnvAiWcJhzko088z4meXNpB4q(F09n3)tU2k9wjCLWpSHBxbVVNxTDEw7Z9T7UU4GJcf800B5Mqp5eSie1gmKIMQVwb9N(JFM(3QV(4CSxEI3tMIdi3uF00uwN4OVX9EG(Z(p6BRxrFtpZFySP(p6O)t67RVR(l0)z9xQxv)5674O)kNXqDiRhRLXif9f4qAMe80d0L8Wj0Um91fqlIHERG(Ho6wv1Tn9t6xAVVV9(Rm3N4pn8N3X3S4gLEYPDf0C2LBiYB7iX6)Yp5jTD9JcigktZ28A198ZZT4r5pn)MA6TB9dzybbvnljbTFmvr0V(SWbWOqAaubZsNc2Cw)tDLWKF9bdTevWwrbDOJM4CkmujTmRBc5lph2MG8HPQcnkCHVx5TRTxl9FhkEl3XQXFKe)LLCwUZZpu)7b)2pVqQPt7rVZL9OnHdAdSDQYHMIInP92w3ROURo2lH2JQUHoDAN4oI0nE8qO)RUrE8PyrqohZpE3rrqTylQiaiW0zo6aNPnf1yquuCfP)tkT5Jl93w5T)Vx9))d
+!WA:2!1zv3UTXXv4it4621Xfo0XUfQgnduAmSlCiSDrcGVixWvIKMP0Iu7sjzdxdQz3DwUt8Yz2mZSIIkWxeHGcFTEe4JabYlGEcgiu0ha9gu9e0Zm7skr529I9NZ5Bo)nNZ3SRSt1Wv)WxnLgYz(8Cri5(FI4GUXXsIALz4OFixQirVeFW1U4dk7AIjlGWct4IECktfSEJn73W70qopnIpM5pMMrsoz(NnIgssCnoAVJuc6WHeHC1hikF9F7QMKrccbxWhnR4XaJOzsfwrYZIG7tJib5XX9bXIx0OtVMB3XJSpbC9li4uvIhdpIiDCZzuvqwkEcrCKmJKM2os6eyrkZQ3QrDp)17UD)bUB3SP)GT7Tr9(n2a1Rt9x3WBGnjAVzRb721RZgOwED3U3aVU(G0sONjZlmMpem0dMny96(9h43VUxFVWes4703zbKEccaXZVxJoD0)(dQSrColur5ShIttTPM8XilYh5GGRV(RrDzeKvdcst0iQuszdrMeVgQDmQfbl8d55kevIyCfkLJJirwRiMuUsQCU1KJPkiOIq84yeMfHujeeoxGrs6OSuybj8XwdLaUPMDzP8qCkcNrrF3LCNzXl(Qw9ETVewbjJluaCZImaHN1AruUqu7vO7)P0h(ihRvI5c0Ghpp4zOmmviVOe9iue3IZCzfvZe2G)IXPsYvufMGzdHm(7qkrEHsclQWr0yBnRmEHAbdExLlywSxGZeqM0)Ppg9LfGRnFN4sHsrYha4wgZBOVDbMfjXBcQ9oYK3cG)PfkTbDrMy8)JxsXY5XY6Ye8HcIuAMfaaRzCbnCTLbTponNytILeR4kiQ)iXuwe5aqmDzXMzkqAqTuCaj9klbMMT6mVCLGhdKfcRYybFecQNRDLWBCYeREZZRO(9lVRDPTihq45f8d7GfuCqkrM9Zfv0f(8NqruPHaWuA2nHdAywTiQAThJulkAcyZAn07lCSjoGRpA5tqt45OXy2))L)(JZzLmzoNdCHebdNUdWWbt6)65VJqYQderHkpyxINCSKKgB5m13a40Kyi7GoKKPaRHhziSg5QF4UzvvKdudKjyG(8vLeUhBLzUj(QI0n72xc268uU47xzLvQCwH05oYTtJM9ZUJviohkEM2LDPrQe36WNNBvamvKiRWF(0cI9xx62tS6nhaqJNORnvWnT09bHUB2DZg6BjGq3GPmOlwDzq)7MALfAJTkWvrseZzQSB3uqpeTvoocQayu)(lzG5U)uRSXCr0UcC2r7w(YPlSJ9ibGsVt7nBSuDBrcuyWbzMIXmajWM71U1l6FHn8PhsU7Plf5L59(ujf6Z2liHqhMOEURHYTzamfb823ZBuEQI64A2GVNUTJxykwknV5kbtAEzQWURAIsTZXyg1u(5SV1dgBfQMNqWsIVsqydvj3qFlxgNronY0uaOShdkKeyelsEKbQ1oB5octzn19GfO3s7P9191BfetzuzYvfpJYagTcV6Ck0aa5y3mZxWbJGHJPdDCpKZh1RYtQ93oVOi0uaJ(gFf4VUxJgBovXd3VON(32B11Orz35IthmC6O2GPey75BYVv31rVJJlepkNzXgBbPiSjxXBSPf75Ex0q8SCA0SwsJnAhYEYtH5kJJijzvZLK1l)dIxYJG5hYEzF(8)PW0aUbvAibI2BQParlYPJMJi5S5mLf)EZF9(FY1QoQAu1Op8e3Hc(y3n6U7MNfaDueHlo8DrcEw2TDtPhEiweH6d2rrZ0xBf91)p6FJ(gZkGEXGMNmdhsUUEqzcR3ZrFZvFG(t)N6ptxvFlpZHTpt)hD0)j9913t)h0)z9xOVJ(Z131r)LoZGQq(iMVXivce4iAU8x(u9de972ZmZ6HtPdz6AcOvXqVSI(Ho6wn1VW0xP)E79)U9EhZ9tdkZH1NxCn7OFZXdf0Ij7BkkA)ij6)YV6jHZVivMgsmuwMT6164fuKHjtlEA(VTSpZ)hZXccQzEAkA3eQIOF5jrtGZgOHqvmpReSzg66Us4Oq9whzjjGTJv0VYr)ANJb2QS6SHPKV4myRcYhMQj0SWfbE13O92(6nHs4v7C1B)rs25QsoPW5LSnGFhxuo1VTSp9Ux0N2dg4My7wLhzkk2K2BdnUI(n6)HxkDevDt98UXwISN80JGEWog5jhJfHDStP)Y9Mgd1I1PIqGyqtD076u2A0MbrrLQYGVP2ZEATNxD))1R(Vd
 ```
 
 ### Aura 2: GearScout Missing Buffs
 
-One line of text that is only on screen while something is missing, for example
-`Missing 2: Blessing of Might (Bob), Battle Shout (Carl)`. Imports as a single
-text aura called `GearScout Missing Buffs`.
+One line of text, on screen only while something is missing, for example
+`Blessing of Might (Bob), Battle Shout (Carl)`. Imports as a single text aura
+called `GearScout Missing Buffs`. Starts a little below the centre of your
+screen.
 
 ```
-!WA:2!Twv0UnoruucDLw2iaTkRurAfpmBqlQvQRvBLyfGurkonjBrPjbBh6UcHIg7zC8aoZyMzCB6IGhI4bEUFc5tis8dWxGvfIpG9ty)c4oJDtBbwXlevvp(oN75EVhFN7uRBJznini)6JKICDkJtLdhh0)ObDUeNRteYHzAMGRQVIWuzP4ZdOZ1nFm)svcMio7fdJJvu9h(wRW8ia9ibJRdB3zqqhVS7hLR0IzgpgNrWAQh9ukx)kGyXmSMfDcJOtCBbVkXr2W8upLgl11dJzCMkPUl8qxFHwYMoLkvp8JLvl)tx95z0WYiSQ8XeRjGaDUQ4bZRTFCo3s7w24UDDe87jpb1oHIZOkn6hYH)d7J6rXs)iqaqryocZvNrLoipQoxYvimINplKk3bHttfrqHOUIkUqNW4tHD4eetHIXPkk6SekhPtOimHaSd2bCOubMqjowxn0KIWzm0b3i4gsw)MtRrhzXYITUBalKxT0PhvFmtPGG7Mhh3wKZ1MqYrsBwxLjuoXYrLX3GJBTn6lq7whaxCVWNrXP6epoEguMU5G(hA(UtLllv5bWgZFB)1AB1hK1QRBolLOSL)zjIukY0uTdsjSMQ6IqcE65ioLciFm))rnXutE0mH82QrZMRLIYWilXCW)0VT2(QiuIXjYQThCaA3)nkVbNzqNRcO8h)jRXyiZm1YE7G(OkQMvk8iIWI4AxdbC3gZ3W(21yGCj0jwkMzvJQL)8bMuWKrRXz(ztcWzGWqNuCinf54GAI2QP5zLVglB3CTFuOv5)GKRXwjJRR9RKJQMkKno3s6mr7ZlTRXHPuWmhofTLnk7GAc)TTP5l0EmvL1QxNwE(TH5qtCh3TR)KXJoSvqNdrJ636fD8MyNUC0GEtozOx)dr98goE0eVH(G1kOluz000JiQ6Erj0OVV4EVsLxsVp8HMnF1K2T8dM4h0Yly9wJKuylp)rD63FjHgcidGjkYN1P)OUJ7FbulL96Bw8Gm1By4YqtJnyscAagco56PbvEJWHItPifMrkpLApCKWig1dMvaOs0o3uB1YCQrGEnmCLk540VgMfcH(3UqrtJlN56omiy4XUXcUo7(DLSxI(QCmrI1yuqWsOe9OtTdYDnZH6gQXPqAVP3S8unRUliyrBwShOxPyLYSYvXEj1SyHHtF4Lhvn0)5Ld93yP0sPrJC1Wq(fNjKKtK4SfNuTqoVeAn53bZoyXNxC3LAr0PLP)7m6HnzKSp46d7x1dzonQ8IePc5xUXO7SRZNUFTnwflHrp(AtnTXRlVVPRXKjbc9B71PZGLqRfHvEJ1(5mYQEkdxbZ17UN88YK5o1dbuXSP1xvwpTTXPwTABSe((tj2RL(L3DfJdhHnxuj41VaZzLlFAX7193PyLjtO8P6K7w0WLl40lj5slc79qsf1KlQfgOMmS4y3zygVBrFWHIJlgumSye889)7wAOc)eN93Z5ZAC6F88)k
+!WA:2!Twv0Unsnuuf2hkBeGwLvQi2NmbTOwP2rTvIvIhkszstYwiBsyMe6UcHI8m2tgdo2d2EAtxe8qepWd8u)eYNqK4hGVGrvi(a2pH9lGR9mnDxGv8cJIY456Z9CV3JTVUw3gZBqAq(LpujZnCMGQgozC)th05ACUjvQgMzysHU(ActNXXxoMUW08HIR1PyI8INnmjrtn1wJfXa4rsMWe1UZGXDcYUxCU2iNBDysgbBOb0ZPcZlaELZXgw8zmIj1Vf8Pch7IYJc0gSYupkHjy606(Wlt9LgfB2mQs)Gpwvn8p9nxMrJkJW6YxtDMacm56I7VO2rj5chT74I7U1rWZ(7JANsXzuTb995W)W8OEuSkmgQFumwGWc9fuLhkGAYvcncJe5ZJOQ9qyoxgdfI(gQestktmdMrqqmnkbZ1u0fPubYKsrycbyhSd4qCjMqjEoxT0Wr4mg64xj4ws28LxRrN6WYsCUBblv3m0Rh18eMwdb3ppjPTmxySHuGuUSUktOcIJJkJVbh3zx0NHoOoaU4UrpMI5M0abEouM(5G(hzx2PQvLQ8ayIfV1(B02QfKnQRFoJt0UY)IujNIS7P2dPLotvBIqsb)sKGsbKpu8)OMyRPaAMu96QrZMBKIYWOkXC8)0VD29MiuIXl2PThFm6G)nkFfoZGDUAGYF4hDgtGmZwlhUh6JQOAEPWJishIBDncW96y(A23SbdKlrEjk5CNAun8No2Mc2mAdo7JljaNbcJ844ikh55HAI2PP9DLVwl72CJFuyRY)bj3ITsg3u7vYHbhXPGwjGZh748Fput43U2TvrUdG6Sw960kiSn0GzQ)KUDdNoz0jTg35e0O(TEwNGPU(gNoO30Zgg0)euVGHtgnnyyiyTc6sDgLZpLORheNsJ)UI7(cDEj9HWsiBX6PTBfoEA44wbJ3m1iffMkiCuN(9xrOraYXqVc1J70Fu3j9VcwGl3fVDX9Z0VH2gdTBzbtkOKXqWj3EoVYBeosEofPXms55p32(ugXUMdDbauPgVxt1u5uRa9sOTjvjW8Vc6YbH(3Ust5jUUPfB5NifMS71vXEo6lZXef2GrJhVcQUa6mxZzFBZLUrgmhY4TdMNZnS6(GwfVDXbGuXXATDKVM9CQDWslNHWhFqvJ8Nw1iFLYrPvE8nqN7LxivKZu4SLNvnqTOcQ6BHgcSKll2ALrgFEzM)2JEqtgj79V9eCv3gK9iMoiwYLQp)oWZ6ef0kj0ylN78YY7p6AnzJDuy7GoDgSc2qryLxaDuoJSUN2sZ4fMdouDzzE8RBfbOsyZQVUSuA7crTA1UZkyvNsCxZ8ZVZAMaosAV4rkQFfwWkh(OI3T7VtXABMqfZmPBv0Wxif0Rj5khc39kkn1Ml6LwO2mSOV)Cmt0T4lahk6x8KIbfdH3V3F3sdD0N4D0HEFAJZ)JN(xp
 ```
 
 ---
@@ -58,15 +90,16 @@ Both variants use the same idea. GearScout fires a custom event called
 `GEARSCOUT_BUFFS_UPDATED` when the answer changes, and the WeakAura reads the
 answer back out of `GearScout.API` when it hears it.
 
-### Variant A: one icon per missing buff
+### Variant A: one small icon per missing buff
 
 This is the dynamic group version. You create two things: a dynamic group to
 hold the icons, and one icon aura inside it that clones itself once per missing
 buff.
 
 **Step 1.** In `/wa`, click **New**, choose **Dynamic Group**, and name it
-whatever you like. On its **Group** tab set **Grow** to `Right` if you want a
-row, or `Down` if you want a column. Leave everything else alone.
+whatever you like. On its **Group** tab set **Align** to `Left`. Leave
+everything else alone. **Grow** is already `Down` and **Space** is already `2`,
+which is exactly what this layout wants.
 
 **Step 2.** Click **New** again, choose **Icon**, and drag it into the dynamic
 group in the list on the left.
@@ -111,7 +144,6 @@ function(allstates, event)
             name = b.label,
             icon = b.icon,
             caster = b.from or "",
-            ask = b.from and ("Ask " .. b.from) or "",
             why = b.why or "",
         }
     end
@@ -127,25 +159,34 @@ later, and it changes nothing about how the aura looks.
 ```lua
 {
     caster = { display = "Who can cast it", type = "string" },
-    ask    = { display = "Ask line", type = "string" },
     why    = { display = "Why you want it", type = "string" },
 }
 ```
 
-**Step 6.** Open the icon's **Display** tab. Leave **Icon** / **Source** on
-`Automatic`, which is the default and means "use whatever icon the trigger hands
-over". Then scroll down to **Sub Elements**, click the small plus button beside
-that heading, and choose **Text**. Set the new text's **Display Text** to
+**Step 6.** Open the icon's **Display** tab and make it small and plain:
 
-```
-%ask
-```
+- Leave **Icon Source** on `Automatic`, which is the default and means "use
+  whatever icon the trigger hands over".
+- Set **Width** and **Height** to `28`.
+- Set **Zoom** to `30%`. This crops the carved edge off the game's icon art and
+  leaves a clean square.
+- Under **Swipe Overlay Settings**, untick **Enable Swipe**. Nothing here is on
+  a timer, so the radial overlay has nothing to say.
 
-and set its **To Region's** anchor to `Outer` / `Bottom` so it sits under the
-icon. That prints `Ask Bob` under the icon of the buff Bob owes you.
+**Step 7.** Still on the **Display** tab, scroll down to **Sub Elements**,
+click the small plus button beside that heading, and choose **Text**. Set:
 
-That is the whole thing. Every missing buff becomes one icon in the group, best
-first, and the group empties itself when you are fully buffed.
+- **Display Text**: `%caster`
+- **Size**: `10`
+- **Anchor**: `Left`
+- **To Frame's**: `Outer` / `Right`
+- **X Offset**: `4`
+
+That puts the name of whoever owes you the buff just to the right of that
+buff's icon, with a small gap.
+
+That is the whole thing. Every missing buff becomes one row in the list, best
+first, and the list empties itself when you are fully buffed.
 
 Other text you can use in that box, or anywhere else the aura takes text:
 
@@ -153,9 +194,11 @@ Other text you can use in that box, or anywhere else the aura takes text:
 | --- | --- |
 | `%n` | the buff name, for example `Blessing of Might` |
 | `%i` | the buff icon |
-| `%ask` | `Ask Bob` |
-| `%caster` | `Bob` |
+| `%caster` | `Bob`, whoever in the group can cast it |
 | `%why` | the one line reason, for example `Straight attack power, so every hit lands harder.` |
+
+Plain words mix in with those, so if you liked the old wording better, type
+`Ask %caster` and you get `Ask Bob` back.
 
 ### Variant B: one line of text, only when something is missing
 
@@ -217,7 +260,7 @@ function(trigger)
         end
     end
 
-    return "Missing " .. report.count .. ": " .. table.concat(parts, ", ")
+    return table.concat(parts, ", ")
 end
 ```
 
@@ -227,10 +270,21 @@ end
 %n
 ```
 
+Then set **Size** to `12`, and set **Shadow X Offset** and **Shadow Y Offset**
+to `0`. The outline already keeps the text readable over a bright floor, so the
+drop shadow underneath it is just extra ink.
+
 Done. The aura appears when something is missing and disappears when it is not.
 
-If you only want a count and no names, skip step 5 and use this as the display
-text instead, which needs no code at all beyond the trigger:
+If you want the count back at the front of the line, change the last line of
+step 5 to this:
+
+```lua
+return "Missing " .. report.count .. ": " .. table.concat(parts, ", ")
+```
+
+And if you only want a count and no names at all, skip step 5 entirely and use
+this as the display text instead, which needs no code beyond the trigger:
 
 ```
 Buffs missing
@@ -271,21 +325,27 @@ end
 ## Extras
 
 **A custom text function**, if you want to build the label yourself rather than
-using `%ask`. Put `%c` in the display text and paste this into the function box
-that appears:
+using `%caster`. Put `%c` in the display text and paste this into the function
+box that appears:
 
 ```lua
 function()
     local s = aura_env.state
     if not s then return "" end
-    return s.ask or ""
+    return s.caster or ""
 end
 ```
 
-**Conditions.** Because of the Custom Variables box in step 5, `caster`, `ask`
-and `why` appear in the property dropdown on the aura's **Conditions** tab
+**Conditions.** Because of the Custom Variables box in step 5, `caster` and
+`why` appear in the property dropdown on the aura's **Conditions** tab
 alongside the built in ones. So you can, for example, colour the icon
 differently when the person who owes you the buff is you.
+
+**Grow sideways instead.** If you would rather have a row than a list, set the
+group's **Grow** to `Right`. Do that and the names will run into each other as
+soon as two buffs are missing, so move the text sub element to **To Frame's**
+`Outer` / `Bottom` with **Anchor** `Top` and **X Offset** `0` first, which puts
+each name under its own icon.
 
 **The optional list.** Anything that hangs on a talent, or on the fight being
 the right one, is deliberately kept off the main answer and put on a second
@@ -320,7 +380,10 @@ Work down this list in order.
    capitals, no spaces. A typo there means the aura never hears anything.
 5. **Is Check On still set to Every Frame?** Then the **Event(s)** box is hidden
    and ignored. Set it back to `Event(s)`.
-6. **Still nothing after a reload?** Leave and rejoin the group, or cast
+6. **Icons but no names?** The names hang outside the icons, off to the right,
+   and the group only measures the icons. Drag the list too close to the right
+   edge of your screen and the names go over it. Pull it left.
+7. **Still nothing after a reload?** Leave and rejoin the group, or cast
    anything on yourself. That forces GearScout to recompute and fire the event.
 
 ---
