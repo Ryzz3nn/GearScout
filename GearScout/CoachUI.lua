@@ -143,6 +143,12 @@ local function CreateSlotRow(list)
                 GameTooltip:AddLine("Enchant: this slot cannot take one.", 0.55, 0.58, 0.65)
             elseif rec.enchanted then
                 GameTooltip:AddLine("Enchant: yes, this item is enchanted.", 0.28, 0.82, 0.42)
+            elseif (ns.playerLevel or 0) < (ns.ENCHANT_WORTH_IT or 58) then
+                -- Missing, but deliberately not counted against you yet. Saying
+                -- so here keeps this tooltip agreeing with the summary chip
+                -- above it instead of contradicting it.
+                GameTooltip:AddLine(format("Enchant: missing, and that is fine for now. Enchants start being worth the gold at level %d.",
+                    ns.ENCHANT_WORTH_IT or 58), 0.55, 0.58, 0.65)
             else
                 GameTooltip:AddLine("Enchant: missing. Free stats you are not getting.", 1, 0.37, 0.34)
             end
@@ -499,8 +505,21 @@ local function Refresh()
         or format("%d thing%s worth fixing", n, n == 1 and "" or "s"))
 
     chips.avgIlvl.value:SetText(format("%.1f", report.avgIlvl or 0))
+    -- The number is always the true count. Below the level where enchanting is
+    -- worth the gold it is shown in a neutral colour, because it is a fact
+    -- about your gear rather than a problem you should act on yet.
+    local enchantThreshold = ns.ENCHANT_WORTH_IT or 58
+    local enchantsMatter = (report.level or 0) >= enchantThreshold
     chips.missingEnchants.value:SetText(report.counts.missingEnchants)
-    chips.missingEnchants.value:SetTextColor(unpack(report.counts.missingEnchants > 0 and T.bad or T.good))
+    if report.counts.missingEnchants == 0 then
+        chips.missingEnchants.value:SetTextColor(unpack(T.good))
+    elseif enchantsMatter then
+        chips.missingEnchants.value:SetTextColor(unpack(T.bad))
+    else
+        chips.missingEnchants.value:SetTextColor(unpack(T.dim))
+    end
+    chips.missingEnchants.label:SetText(enchantsMatter and "MISSING ENCHANTS"
+        or ("MISSING ENCHANTS, OK UNTIL " .. enchantThreshold))
     chips.emptySockets.value:SetText(report.counts.emptySockets)
     chips.emptySockets.value:SetTextColor(unpack(report.counts.emptySockets > 0 and T.warn or T.good))
     chips.emptySlots.value:SetText(report.counts.emptySlots)

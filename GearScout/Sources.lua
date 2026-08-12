@@ -127,13 +127,45 @@ function ns.GetItemSource(itemID)
     return rec.d, rec.b
 end
 
+-- Drop chance, when it is actually known. Coverage is uneven on purpose:
+-- the classic dungeons a levelling character runs are well covered, while
+-- TBC boss loot mostly is not, because that data is stored as weighted
+-- groups whose values did not survive checking against reality. Saying
+-- nothing beats printing a percentage that is wrong.
+-- An item can drop from several creatures at different rates, so the table
+-- holds a list per item. The best chance is the useful one to quote, since
+-- that is the kill worth farming.
+function ns.GetDropChance(itemID)
+    if not itemID or type(ns.DROP_RATES) ~= "table" then return nil end
+    local list = ns.DROP_RATES[itemID]
+    if type(list) ~= "table" then return nil end
+
+    local bestPct, bestWho
+    for _, rec in ipairs(list) do
+        local pct = rec and rec.p
+        if type(pct) == "number" and (not bestPct or pct > bestPct) then
+            bestPct, bestWho = pct, rec.c
+        end
+    end
+    return bestPct, bestWho
+end
+
 function ns.DescribeItemSource(itemID)
     local instance, boss = ns.GetItemSource(itemID)
     if not instance then return nil end
-    if boss and boss ~= "" and boss ~= "Trash" then
-        return format("Drops from %s in %s.", boss, instance)
+
+    local chance = ns.GetDropChance(itemID)
+    local odds = ""
+    if type(chance) == "number" and chance > 0 then
+        odds = format(" It drops about %s of the time.",
+            chance >= 10 and format("%d percent", ns.Round(chance))
+            or format("%.1f percent", chance))
     end
-    return format("Drops in %s.", instance)
+
+    if boss and boss ~= "" and boss ~= "Trash" then
+        return format("Drops from %s in %s.%s", boss, instance, odds)
+    end
+    return format("Drops in %s.%s", instance, odds)
 end
 
 -- ---------------------------------------------------------------------------
@@ -145,6 +177,36 @@ end
 -- cosmetic question would be rude to both the client and the player.
 -- ---------------------------------------------------------------------------
 local upgradeCache = {}
+
+-- ItemMeta stores the client's own InventoryType number rather than the
+-- INVTYPE_ string, so it needs its own mapping to our slot ids. Having this
+-- means an upgrade can be matched to a slot from shipped data alone, instead
+-- of only working for items the player's client happens to have cached.
+local SLOT_FOR_INVTYPE = {
+    [1] = 1,    -- head
+    [2] = 2,    -- neck
+    [3] = 3,    -- shoulder
+    [5] = 5,    -- chest
+    [6] = 6,    -- waist
+    [7] = 7,    -- legs
+    [8] = 8,    -- feet
+    [9] = 9,    -- wrist
+    [10] = 10,  -- hands
+    [11] = 11,  -- finger, first position
+    [12] = 13,  -- trinket, first position
+    [13] = 16,  -- one hand weapon
+    [14] = 17,  -- shield
+    [15] = 18,  -- ranged, bow
+    [16] = 15,  -- back
+    [17] = 16,  -- two hand weapon
+    [20] = 5,   -- robe counts as chest
+    [21] = 16,  -- main hand
+    [22] = 17,  -- off hand
+    [23] = 17,  -- held in off hand
+    [25] = 18,  -- thrown
+    [26] = 18,  -- ranged right, gun or crossbow
+    [28] = 18,  -- relic
+}
 
 local function InstancesForLevel(level)
     local out = {}
@@ -215,22 +277,45 @@ function ns.FindSlotUpgrades(slotID, minIlvl, limit)
             end
 
             if worthAsking then
-                local meta = ns.GetItemMeta(itemID)
-                if not meta then
-                    -- Not cached yet. GetItemMeta has queued it, so it will be
-                    -- answerable next time rather than lost.
-                    pending = pending + 1
-                elseif meta.ilvl and meta.ilvl > (minIlvl or 0)
-                       and meta.equipLoc and meta.equipLoc ~= "" then
-                    local target = ns.SLOT_FOR_EQUIPLOC and ns.SLOT_FOR_EQUIPLOC[meta.equipLoc]
-                    if target == slotID then
-                        found[#found + 1] = {
-                            itemID   = itemID,
-                            name     = meta.name,
-                            ilvl     = meta.ilvl,
-                            instance = rec.d,
-                            boss     = rec.b,
-                        }
+                -- Shipped data answers the slot question outright now, so an
+                -- item the client has never seen can still be matched. The
+                -- client is only consulted for the name, and its absence
+                -- downgrades the row rather than discarding it.
+                local shipped = ns.ITEM_META and ns.ITEM_META[itemID]
+                local shippedSlot = shipped and SLOT_FOR_INVTYPE[shipped.e or -1]
+
+                if shippedSlot and shippedSlot ~= slotID then
+                    -- Definitely the wrong slot. Costs nothing and asks nothing.
+                elseif shippedSlot == slotID and dbIlvl then
+                    local meta = ns.GetItemMeta(itemID)
+                    if not meta then pending = pending + 1 end
+                    found[#found + 1] = {
+                        itemID   = itemID,
+                        name     = meta and meta.name,
+                        ilvl     = dbIlvl,
+                        quality  = shipped.q,
+                        instance = rec.d,
+                        boss     = rec.b,
+                        chance   = ns.GetDropChance(itemID),
+                    }
+                else
+                    -- No shipped answer for this item, fall back to the client.
+                    local meta = ns.GetItemMeta(itemID)
+                    if not meta then
+                        pending = pending + 1
+                    elseif meta.ilvl and meta.ilvl > (minIlvl or 0)
+                           and meta.equipLoc and meta.equipLoc ~= "" then
+                        local target = ns.SLOT_FOR_EQUIPLOC and ns.SLOT_FOR_EQUIPLOC[meta.equipLoc]
+                        if target == slotID then
+                            found[#found + 1] = {
+                                itemID   = itemID,
+                                name     = meta.name,
+                                ilvl     = meta.ilvl,
+                                instance = rec.d,
+                                boss     = rec.b,
+                                chance   = ns.GetDropChance(itemID),
+                            }
+                        end
                     end
                 end
             end

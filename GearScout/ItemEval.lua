@@ -10,15 +10,66 @@
 --   ns.ScoreItem(itemLinkOrId, specKey)   numeric score, or nil plus a reason
 --   ns.CompareToEquipped(itemLinkOrId)    delta plus a plain English explanation
 --   ns.GetCapStatus(specKey)              list of caps this character meets or misses
+--   ns.ExplainItem(itemLinkOrId, specKey) full per stat breakdown, see below
 --
 -- specKey is optional everywhere it appears. Pass nil to mean "the character
 -- currently logged in, in their current talent spec". Pass a table shaped
 -- like { class = "PALADIN", tab = 2 } to score for a different spec, for
 -- example when a raid lead is checking gear for someone else's class.
 --
--- Caps come first. Whether a mandatory cap, like a tank's defense skill, is
--- currently met is always checked before any stat comparison is trusted,
--- because nothing else matters until a missed mandatory cap is fixed.
+-- ---------------------------------------------------------------------------
+-- ns.ExplainItem, the three tier model
+--
+-- Pawn's problem is not that its arithmetic is wrong, it is that it never
+-- says why, so a wrong recommendation looks exactly as confident as a right
+-- one. ExplainItem answers "why" by sorting everything about an item into
+-- three tiers, and never lets a lower tier argue its way past a higher one:
+--
+--   1. Blocking. The item is unusable, full stop, and no stat total changes
+--      that: a required level above the character, a weapon type the class
+--      cannot equip, or a slot the class cannot fill at all (a shield with
+--      no shield proficiency, a relic of the wrong kind). When this tier has
+--      an entry the verdict is that entry, and the stat arithmetic is not
+--      shown as if it mattered, because it does not.
+--   2. Weighted penalty. Real, but not a veto. Right now this is armor
+--      weight: a class wearing lighter armor than it could be wearing loses
+--      real physical mitigation, but only from the level that class actually
+--      gets access to the heavier type, matching the same level 40 gate
+--      Scan.lua's own wantArmor already uses. Below that level cloth,
+--      leather and mail are all so close in raw armor that the difference is
+--      not worth a penalty, never mind a veto, which is exactly why a level
+--      27 hunter in cloth boots is not a problem: they have no mail to give
+--      up yet. This tier is folded straight into the score, and said in
+--      words too, but a big enough stat gap still wins.
+--   3. Ordinary stat arithmetic, the researched weights doing their normal
+--      job: agility times its weight, stamina times its weight, and so on,
+--      each one shown so a player can see exactly what an item is and is
+--      not paying them for. A stat with no weight for this spec at all, or
+--      a weight so small it barely moves the total, gets its own plain
+--      English line instead of silently vanishing into a total, because
+--      "plus 7 spell damage does nothing for a hunter" is worth more to a
+--      hunter deciding whether to roll than the total ever is on its own.
+--
+-- ExplainItem returns one table (or nil plus a reason when the item itself
+-- cannot be identified):
+--   itemID, link, name
+--   spec        { class, tab, name }, confidence          the spec used
+--   noData      true when this spec has no researched weights at all
+--   blocking    array of { kind, text }, tier 1, empty when nothing blocks
+--   armorPenalty  { fraction, note } or nil, tier 2
+--   stats       array of { key, label, amount, weight, contribution, note,
+--               dead, nearZero, capGated }, tier 3, dead stats sorted first
+--   weapon      { dps, weight, contribution } for a ranged weapon's own DPS,
+--               or { note } when the DPS could not be read yet
+--   total, equippedTotal, delta, slotID
+--   verdict     "blocked" | "no data" | "empty slot" | "upgrade" |
+--               "sidegrade" | "downgrade" | "same" | "no slot"
+--   verdictText a single plain English sentence matching verdict
+--
+-- Caps come first, same as everywhere else in this file. Whether a mandatory
+-- cap, like a tank's defense skill, is currently met is checked through
+-- ns.GetCapStatus before any stat comparison is trusted, because nothing
+-- else matters until a missed mandatory cap is fixed.
 --
 -- A stat that has already passed its cap is worth only a small fraction of
 -- its normal weight for the rest of that comparison, not full value and not
@@ -27,22 +78,89 @@
 -- Every stat lookup goes through ns.GetStats, the cached wrapper Scan.lua
 -- already exposes for the C_Item.GetItemStats shim. Nothing in this file
 -- calls GetItemStats or C_Item.GetItemStats directly, and nothing here is
--- wired into a refresh or OnUpdate path, so the API is only ever touched
--- once per item id and the result is kept from then on.
+-- wired into a refresh or OnUpdate path. Every per item computation, raw
+-- stat contributions, weapon DPS, armor subclass, required level, is cached
+-- by item id the first time it is needed and kept from then on, so a
+-- tooltip that redraws on every mouse move never recomputes any of it.
 
 local ADDON, ns = ...
 
 local CreateFrame, UIParent = CreateFrame, UIParent
 local GetInventoryItemLink = GetInventoryItemLink
-local UnitClass = UnitClass
+local UnitClass, UnitLevel = UnitClass, UnitLevel
+local GetItemInfo, GetItemInfoInstant = GetItemInfo, GetItemInfoInstant
 local pairs, ipairs, type, tonumber, tostring = pairs, ipairs, type, tonumber, tostring
 local format = string.format
+local mmin, mfloor = math.min, math.floor
 
 -- How much of a stat's weight survives once the character is already past
 -- that stat's cap. Not zero, because a hair over a soft cap should not read
 -- identically to wildly over it, but small enough that it never outweighs an
 -- uncapped stat of the same size.
 local OVERCAP_FACTOR = 0.05
+
+-- ---------------------------------------------------------------------------
+-- plain English labels
+-- Shared by the per stat breakdown, the armor tier penalty note and the
+-- blocking problem text, so the same stat or class is never worded two
+-- different ways in the same tooltip.
+-- ---------------------------------------------------------------------------
+local CLASS_LOWER = {
+    WARRIOR = "warrior", PALADIN = "paladin", HUNTER = "hunter", ROGUE = "rogue",
+    PRIEST = "priest", SHAMAN = "shaman", MAGE = "mage", WARLOCK = "warlock",
+    DRUID = "druid",
+}
+
+local CLASS_PLURAL = {
+    WARRIOR = "Warriors", PALADIN = "Paladins", HUNTER = "Hunters", ROGUE = "Rogues",
+    PRIEST = "Priests", SHAMAN = "Shamans", MAGE = "Mages", WARLOCK = "Warlocks",
+    DRUID = "Druids",
+}
+
+local STAT_LABEL = {
+    ITEM_MOD_STRENGTH_SHORT = "Strength",
+    ITEM_MOD_AGILITY_SHORT = "Agility",
+    ITEM_MOD_STAMINA_SHORT = "Stamina",
+    ITEM_MOD_INTELLECT_SHORT = "Intellect",
+    ITEM_MOD_SPIRIT_SHORT = "Spirit",
+    ITEM_MOD_HIT_RATING_SHORT = "Hit Rating",
+    ITEM_MOD_HIT_SPELL_RATING_SHORT = "Spell Hit Rating",
+    ITEM_MOD_HIT_MELEE_RATING_SHORT = "Melee Hit Rating",
+    ITEM_MOD_CRIT_RATING_SHORT = "Critical Strike Rating",
+    ITEM_MOD_CRIT_SPELL_RATING_SHORT = "Spell Critical Strike Rating",
+    ITEM_MOD_HASTE_RATING_SHORT = "Haste Rating",
+    ITEM_MOD_HASTE_SPELL_RATING_SHORT = "Spell Haste Rating",
+    ITEM_MOD_EXPERTISE_RATING_SHORT = "Expertise Rating",
+    ITEM_MOD_DEFENSE_SKILL_RATING_SHORT = "Defense Rating",
+    ITEM_MOD_DODGE_RATING_SHORT = "Dodge Rating",
+    ITEM_MOD_PARRY_RATING_SHORT = "Parry Rating",
+    ITEM_MOD_BLOCK_RATING_SHORT = "Block Rating",
+    ITEM_MOD_BLOCK_VALUE_SHORT = "Block Value",
+    ITEM_MOD_RESILIENCE_RATING_SHORT = "Resilience Rating",
+    ITEM_MOD_ATTACK_POWER_SHORT = "Attack Power",
+    ITEM_MOD_RANGED_ATTACK_POWER_SHORT = "Ranged Attack Power",
+    ITEM_MOD_SPELL_POWER_SHORT = "Spell Power",
+    ITEM_MOD_SPELL_DAMAGE_DONE_SHORT = "Spell Damage",
+    ITEM_MOD_SPELL_HEALING_DONE_SHORT = "Healing Power",
+    ITEM_MOD_MANA_REGENERATION_SHORT = "Mana Regeneration",
+}
+
+-- Whichever of the character's own gear or the game's own level check is
+-- available. Both CompareToEquipped and ExplainItem judge a hypothetical
+-- other class's item using the currently logged in character's own level,
+-- the same assumption SumEquippedStat already makes about equipped gear, so
+-- this is not a new limitation, only a shared one made explicit here.
+local function CurrentLevel()
+    return (ns.lastScan and ns.lastScan.level) or (UnitLevel and UnitLevel("player")) or 0
+end
+
+-- Formats a stat amount without a pile of decimal places for the common
+-- whole number case, but still shows one decimal for a fractional value
+-- rather than silently rounding it away.
+local function AmountText(v)
+    if v == mfloor(v) then return format("%d", v) end
+    return format("%.1f", v)
+end
 
 -- ---------------------------------------------------------------------------
 -- spec resolution
@@ -131,6 +249,17 @@ local function GetCapLookup(specData)
     return lookup
 end
 
+-- The cap entry itself for a given stat, when this spec's data table names
+-- one. Used to tell "this stat is weighted at zero because it does nothing"
+-- apart from "this stat is weighted at zero because it is judged entirely by
+-- a cap instead", which are very different things to tell a player.
+local function FindCapForStat(specData, statKey)
+    for _, cap in ipairs(specData.caps or {}) do
+        if cap.statKey == statKey then return cap end
+    end
+    return nil
+end
+
 -- ---------------------------------------------------------------------------
 -- how much of the character's current gear already carries a given stat
 -- Reads ns.lastScan, the equipment snapshot Scan.lua already keeps, and each
@@ -171,6 +300,174 @@ local function AdjustForCap(value, currentTotal, capValue)
 end
 
 -- ---------------------------------------------------------------------------
+-- tier 2, armor weight
+-- Lighter armor than the class could be wearing is a real cost, but only
+-- from the level that class actually has access to the heavier type. Below
+-- that level every armor type carries so little that the difference is not
+-- worth a penalty. This mirrors the exact level >= 40 gate Rules.lua's own
+-- gear report already uses for the same check, and the exact wantArmor
+-- relationship Scan.lua's own scan already computes, so a level 27 hunter in
+-- cloth is correctly never penalised here at all.
+-- ---------------------------------------------------------------------------
+local ARMOR_NAME_TO_ID = { Cloth = 1, Leather = 2, Mail = 3, Plate = 4 }
+
+local ARMOR_TIER_PENALTY_PER_TIER = 0.10 -- fraction of the item's score removed per tier of gap
+local ARMOR_TIER_PENALTY_MAX = 0.35      -- never treat armor weight alone as more than this much of the score
+
+local classInfoCache = {}
+local function GetItemClassInfo(itemID)
+    local cached = classInfoCache[itemID]
+    if cached then return cached[1], cached[2] end
+    local classID, subClassID
+    if GetItemInfoInstant then
+        local ok, _, _, _, _, _, c, s = pcall(GetItemInfoInstant, itemID)
+        if ok then classID, subClassID = c, s end
+    end
+    classInfoCache[itemID] = { classID, subClassID }
+    return classID, subClassID
+end
+
+-- The heaviest armor type classFile can currently be wearing, or nil when
+-- that class has not reached the level its heavier armor type unlocks yet,
+-- in which case there is nothing to compare against and no penalty applies.
+local function GetWantArmorForClass(classFile, level)
+    local types = ns.STAT_WEIGHTS and ns.STAT_WEIGHTS.ARMOR_TYPES
+    local at = types and types[classFile]
+    if not at then return nil, nil end
+    local upgradeLevel = at.upgradeLevel or 40
+    if level and level >= upgradeLevel then
+        return ARMOR_NAME_TO_ID[at.upgraded], upgradeLevel
+    end
+    return nil, upgradeLevel
+end
+
+-- Returns the fraction of an armor item's score to remove for being a
+-- lighter type than the class could be wearing, plus a plain English note,
+-- or nil, nil when nothing applies: the item is not armor, it is already the
+-- right weight or heavier, or the character has not reached the level where
+-- the heavier type exists yet.
+local function GetArmorTierPenalty(itemID, classFile, level)
+    local classID, subClassID = GetItemClassInfo(itemID)
+    if classID ~= 4 or not subClassID or subClassID < 1 or subClassID > 4 then
+        return nil, nil
+    end
+    local wantArmor, upgradeLevel = GetWantArmorForClass(classFile, level)
+    if not wantArmor or subClassID >= wantArmor then
+        return nil, nil
+    end
+
+    local tierGap = wantArmor - subClassID
+    local fraction = mmin(ARMOR_TIER_PENALTY_PER_TIER * tierGap, ARMOR_TIER_PENALTY_MAX)
+    local note = format(
+        "This is %s armor. From level %d a %s can wear %s instead, which carries meaningfully more armor. " ..
+        "That is worth about %d percent of this item's score here, weighed in below, not a reason to rule the item out by itself.",
+        ns.ARMOR_NAMES[subClassID] or "lighter", upgradeLevel, CLASS_LOWER[classFile] or tostring(classFile),
+        ns.ARMOR_NAMES[wantArmor] or "heavier armor", ns.Round(fraction * 100))
+    return fraction, note
+end
+
+-- ---------------------------------------------------------------------------
+-- tier 1, blocking problems
+-- Whether an item can be equipped at all does not care about stat weights,
+-- so this is checked with only the game's own item and class data, never
+-- with specData. Conservative on purpose: a weapon subtype or relic type
+-- GearScout does not recognise is skipped rather than guessed at, because a
+-- wrongly confident "you cannot use this" is worse than saying nothing.
+-- ---------------------------------------------------------------------------
+local reqLevelCache = {}
+local function GetRequiredLevel(itemID)
+    local cached = reqLevelCache[itemID]
+    if cached ~= nil then
+        if cached == false then return nil end
+        return cached
+    end
+    local reqLevel
+    if GetItemInfo then
+        local ok, _, _, _, _, r = pcall(GetItemInfo, "item:" .. itemID)
+        if ok and type(r) == "number" and r > 0 then reqLevel = r end
+    end
+    reqLevelCache[itemID] = reqLevel or false
+    return reqLevel
+end
+
+-- Maps the localized weapon subtype tooltip text back to the generic name
+-- Data/StatWeights.lua's WEAPON_PROFICIENCY table uses. Anything not listed
+-- here, fist weapons, thrown, fishing poles, is left unchecked rather than
+-- risking a wrong call.
+local WEAPON_SUBTYPE_ALIASES = {
+    ["One-Handed Axes"] = "Axe", ["Two-Handed Axes"] = "Axe",
+    ["One-Handed Swords"] = "Sword", ["Two-Handed Swords"] = "Sword",
+    ["One-Handed Maces"] = "Mace", ["Two-Handed Maces"] = "Mace",
+    ["Daggers"] = "Dagger",
+    ["Polearms"] = "Polearm",
+    ["Staves"] = "Staff",
+    ["Bows"] = "Bow",
+    ["Guns"] = "Gun",
+    ["Crossbows"] = "Crossbow",
+    ["Wands"] = "Wand",
+}
+
+-- Which relic subtype each relic using class actually takes. A class not
+-- listed here cannot equip any relic at all, the slot simply stays empty
+-- for them.
+local RELIC_TYPE_FOR_CLASS = {
+    PALADIN = "Libram",
+    DRUID   = "Idol",
+    SHAMAN  = "Totem",
+}
+
+local function GetBlockingProblems(itemID, classFile, level, meta)
+    local problems = {}
+
+    local reqLevel = GetRequiredLevel(itemID)
+    if reqLevel and level and level > 0 and reqLevel > level then
+        problems[#problems + 1] = { kind = "required_level", text = format(
+            "Requires level %d and you are level %d, so you cannot equip this yet.", reqLevel, level) }
+    end
+
+    local prof = ns.STAT_WEIGHTS and ns.STAT_WEIGHTS.WEAPON_PROFICIENCY and ns.STAT_WEIGHTS.WEAPON_PROFICIENCY[classFile]
+    local subType = meta and meta.subType
+    local equipLoc = meta and meta.equipLoc
+
+    if prof then
+        local classID = GetItemClassInfo(itemID)
+        if classID == 2 and subType and subType ~= "" then
+            local generic = WEAPON_SUBTYPE_ALIASES[subType]
+            if generic then
+                local allowed = false
+                for _, w in ipairs(prof.weapons) do
+                    if w == generic then allowed = true break end
+                end
+                if not allowed then
+                    problems[#problems + 1] = { kind = "weapon_type", text = format(
+                        "A %s cannot equip a %s.", CLASS_LOWER[classFile] or tostring(classFile), subType) }
+                end
+            end
+        end
+
+        if equipLoc == "INVTYPE_SHIELD" and prof.canUseShield == false then
+            problems[#problems + 1] = { kind = "cannot_fill_slot", text = format(
+                "A %s cannot equip a shield at all.", CLASS_LOWER[classFile] or tostring(classFile)) }
+        end
+    end
+
+    if equipLoc == "INVTYPE_RELIC" and subType and subType ~= "" then
+        local wanted = RELIC_TYPE_FOR_CLASS[classFile]
+        if not wanted then
+            problems[#problems + 1] = { kind = "cannot_fill_slot", text = format(
+                "A %s cannot equip relics at all, that slot stays empty for your class.",
+                CLASS_LOWER[classFile] or tostring(classFile)) }
+        elseif subType ~= wanted then
+            problems[#problems + 1] = { kind = "cannot_fill_slot", text = format(
+                "This is a %s. A %s can only use a %s in that slot.",
+                subType, CLASS_LOWER[classFile] or tostring(classFile), wanted) }
+        end
+    end
+
+    return problems
+end
+
+-- ---------------------------------------------------------------------------
 -- per item id caches
 -- rawStatCache holds the item's own weighted stat contributions, uncapped,
 -- for a given spec. It never changes for a given item id and spec, so it is
@@ -208,6 +505,143 @@ local function GetRawStatContribution(itemID, specData, specCacheKey)
     rawStatCache[itemID] = rawStatCache[itemID] or {}
     rawStatCache[itemID][specCacheKey] = result
     return result
+end
+
+-- ---------------------------------------------------------------------------
+-- tier 3, the full per stat breakdown, every stat on the item
+-- Unlike GetRawStatContribution above, which ScoreItem uses and which only
+-- keeps stats this spec actually weighs, this keeps every stat the item has
+-- so a stat with no weight at all, the ones actually worth telling a player
+-- about, are not silently dropped before they are ever looked at.
+-- ---------------------------------------------------------------------------
+local SOCKET_LIKE_KEYS = {
+    EMPTY_SOCKET_RED = true,
+    EMPTY_SOCKET_YELLOW = true,
+    EMPTY_SOCKET_BLUE = true,
+    EMPTY_SOCKET_META = true,
+    EMPTY_SOCKET_PRISMATIC = true,
+}
+
+local allStatCache = {}
+local function GetAllStatEntries(itemID, specData, specCacheKey)
+    local byItem = allStatCache[itemID]
+    if byItem and byItem[specCacheKey] then
+        return byItem[specCacheKey]
+    end
+
+    local stats = ns.GetStats("item:" .. itemID)
+    local entries = {}
+    if stats then
+        for statKey, value in pairs(stats) do
+            -- Sockets are not a stat to judge and ITEM_MOD_ARMOR is not a
+            -- confirmed stat key this addon reads for scoring (see the audit
+            -- note in Data/StatWeights.lua), and armor always helps physical
+            -- mitigation regardless of class, so it is never "junk" either.
+            -- Both are left out of the breakdown entirely rather than mislabelled.
+            if not SOCKET_LIKE_KEYS[statKey] and statKey ~= "ITEM_MOD_ARMOR" and type(value) == "number" then
+                entries[#entries + 1] = { key = statKey, value = value, weight = specData.weights and specData.weights[statKey] }
+            end
+        end
+    end
+
+    allStatCache[itemID] = allStatCache[itemID] or {}
+    allStatCache[itemID][specCacheKey] = entries
+    return entries
+end
+
+local NEAR_ZERO_FRACTION = 0.12 -- a stat weighing less than this fraction of the spec's top stat barely moves the score
+
+local topWeightCache = setmetatable({}, { __mode = "k" })
+local function GetTopWeight(specData)
+    local cached = topWeightCache[specData]
+    if cached then return cached end
+    local top = 0
+    for _, w in pairs(specData.weights or {}) do
+        if w and w > top then top = w end
+    end
+    topWeightCache[specData] = top
+    return top
+end
+
+local topStatCache = setmetatable({}, { __mode = "k" })
+local function GetTopStatNames(specData, limit)
+    local cached = topStatCache[specData]
+    if cached then return cached end
+    local ranked = {}
+    for key, w in pairs(specData.weights or {}) do
+        if w and w > 0 then ranked[#ranked + 1] = { key = key, w = w } end
+    end
+    table.sort(ranked, function(a, b) return a.w > b.w end)
+    local names = {}
+    for i = 1, mmin(limit or 3, #ranked) do
+        names[#names + 1] = STAT_LABEL[ranked[i].key] or ranked[i].key
+    end
+    topStatCache[specData] = names
+    return names
+end
+
+-- Builds one row per stat on the item, and the tier 3 subtotal. Rows are
+-- returned with dead stats first, then near zero ones, then the stats that
+-- actually pay, then cap gated stats last, so a caller that only has room
+-- for the first one or two rows shows the ones most worth saying out loud.
+local function BuildStatBreakdown(itemID, specData, specCacheKey, excludeSlotID, classFile)
+    local entries = GetAllStatEntries(itemID, specData, specCacheKey)
+    local capsByStat = GetCapLookup(specData)
+    local topWeight = GetTopWeight(specData)
+    local className = CLASS_LOWER[classFile] or "your class"
+
+    local out, total = {}, 0
+    for _, e in ipairs(entries) do
+        local row = { key = e.key, label = STAT_LABEL[e.key] or e.key, amount = e.value, weight = e.weight }
+
+        if e.weight and e.weight ~= 0 then
+            local usedValue = e.value
+            local capValue = capsByStat[e.key]
+            if capValue then
+                local currentTotal = SumEquippedStat(e.key, excludeSlotID)
+                usedValue = AdjustForCap(usedValue, currentTotal, capValue)
+            end
+            row.contribution = e.weight * usedValue
+            total = total + row.contribution
+
+            if topWeight > 0 and (e.weight / topWeight) < NEAR_ZERO_FRACTION then
+                row.nearZero = true
+                local top = GetTopStatNames(specData, 3)
+                row.note = format("%s %s is close to nothing for a %s. It carries only a token weight next to %s.",
+                    row.label, AmountText(e.value), className, table.concat(top, ", "))
+            end
+        else
+            row.contribution = 0
+            local cap = FindCapForStat(specData, e.key)
+            if cap then
+                row.capGated = true
+                row.note = format("%s does not add to the score by itself, it is judged entirely by the %s: %s",
+                    row.label, cap.name, cap.explanation)
+            else
+                row.dead = true
+                local top = GetTopStatNames(specData, 3)
+                local wantText = #top > 0 and table.concat(top, ", ") or "their own class stats"
+                row.note = format("%s %s does nothing for a %s. %s look for %s instead.",
+                    row.label, AmountText(e.value), className, CLASS_PLURAL[classFile] or "They", wantText)
+            end
+        end
+
+        out[#out + 1] = row
+    end
+
+    table.sort(out, function(a, b)
+        local function Rank(r)
+            if r.dead then return 1 end
+            if r.nearZero then return 2 end
+            if r.capGated then return 4 end
+            return 3
+        end
+        local ra, rb = Rank(a), Rank(b)
+        if ra ~= rb then return ra < rb end
+        return (a.amount or 0) > (b.amount or 0)
+    end)
+
+    return out, total
 end
 
 -- ---------------------------------------------------------------------------
@@ -310,11 +744,20 @@ function ns.ScoreItem(itemLinkOrId, specKey, excludeSlotID)
         end
     end
 
+    -- Tier 2: a lighter armor type than the class could be wearing, from the
+    -- level that class actually has the heavier type available. See the
+    -- GetArmorTierPenalty comment above for why this is folded into the
+    -- score itself rather than only mentioned in passing.
+    local armorFraction = GetArmorTierPenalty(itemID, classFile, CurrentLevel())
+    if armorFraction then
+        score = score * (1 - armorFraction)
+    end
+
     return score, nil, specData.confidence
 end
 
 -- ---------------------------------------------------------------------------
--- equip slot lookup, for CompareToEquipped
+-- equip slot lookup, for CompareToEquipped and ExplainItem
 -- Ring, trinket and one hand weapon slots come in pairs. When an item could
 -- go in either one, the weaker of the two currently equipped is treated as
 -- the one being replaced, since that is the one a player would actually
@@ -375,6 +818,29 @@ local function GetEquippedLink(slotID)
     return nil
 end
 
+-- One sentence describing how newScore compares to equippedScore, shared by
+-- CompareToEquipped's longer explanation and ExplainItem's tight verdict
+-- line, so the two never disagree in wording.
+local function VerdictSentence(delta, equippedLink, equippedScore)
+    if not equippedLink then
+        return "empty slot", "That slot is currently empty, so equipping this is a straight upgrade over nothing."
+    elseif delta > 0.05 then
+        local pct
+        if equippedScore > 0 then pct = (delta / equippedScore) * 100 end
+        if pct and pct >= 15 then
+            return "upgrade", "This is a clear upgrade over what you have equipped there now."
+        elseif pct and pct < 5 then
+            return "sidegrade", "This is a small upgrade, more of a sidegrade than a real improvement."
+        else
+            return "upgrade", "This is an upgrade over what you have equipped there now."
+        end
+    elseif delta < -0.05 then
+        return "downgrade", "This is a downgrade from what you already have equipped there."
+    else
+        return "same", "This is about the same as what you already have equipped there."
+    end
+end
+
 -- ---------------------------------------------------------------------------
 -- ns.GetCapStatus(specKey)
 -- Returns a list of caps for the given spec, each entry saying whether the
@@ -417,7 +883,8 @@ end
 -- ns.CompareToEquipped(itemLinkOrId)
 -- Always uses the character currently logged in and their current talent
 -- spec. Returns delta, explanation. delta is nil when the item or the
--- character's spec could not be scored at all; the explanation says why.
+-- character's spec could not be scored at all, or when a tier 1 blocking
+-- problem makes the arithmetic beside the point; the explanation says why.
 -- ---------------------------------------------------------------------------
 function ns.CompareToEquipped(itemLinkOrId)
     local link, itemID = NormalizeItem(itemLinkOrId)
@@ -426,12 +893,24 @@ function ns.CompareToEquipped(itemLinkOrId)
     end
 
     local classFile, tab = ResolveSpecKey(nil)
+    local level = CurrentLevel()
+    local meta = ns.GetItemMeta and ns.GetItemMeta(itemID)
+
+    -- Tier 1 first. None of the arithmetic below is worth showing if the
+    -- item cannot be equipped at all, so a blocking problem short circuits
+    -- everything else and says so in unambiguous words.
+    local blocking = GetBlockingProblems(itemID, classFile, level, meta)
+    if #blocking > 0 then
+        local texts = {}
+        for _, p in ipairs(blocking) do texts[#texts + 1] = p.text end
+        return nil, table.concat(texts, " ")
+    end
+
     local specData = GetSpecData(classFile, tab)
     if not specData then
         return nil, NoDataReason(classFile, tab)
     end
 
-    local meta = ns.GetItemMeta and ns.GetItemMeta(itemID)
     local equipLoc = meta and meta.equipLoc
     local slotIDs = equipLoc and EQUIP_SLOTS[equipLoc]
     if not slotIDs then
@@ -467,25 +946,14 @@ function ns.CompareToEquipped(itemLinkOrId)
         end
     end
 
-    local pieces = {}
-    if not equippedLink then
-        pieces[#pieces + 1] = "That slot is currently empty, so equipping this item is a straight upgrade over nothing."
-    elseif delta > 0.05 then
-        local pct
-        if equippedScore > 0 then
-            pct = (delta / equippedScore) * 100
-        end
-        if pct and pct >= 15 then
-            pieces[#pieces + 1] = "This is a clear upgrade over what you have equipped there now."
-        elseif pct and pct < 5 then
-            pieces[#pieces + 1] = "This is a small upgrade, more of a sidegrade than a real improvement."
-        else
-            pieces[#pieces + 1] = "This is an upgrade over what you have equipped there now."
-        end
-    elseif delta < -0.05 then
-        pieces[#pieces + 1] = "This is a downgrade from what you already have equipped there."
-    else
-        pieces[#pieces + 1] = "This is about the same as what you already have equipped there."
+    local _, verdictSentence = VerdictSentence(delta, equippedLink, equippedScore)
+    local pieces = { verdictSentence }
+
+    -- Tier 2, said in words as well as folded into the score above, so a
+    -- player sees the armor gap even when the total still comes out ahead.
+    local _, armorNote = GetArmorTierPenalty(itemID, classFile, level)
+    if armorNote then
+        pieces[#pieces + 1] = armorNote
     end
 
     if specData.confidence and specData.confidence ~= "high" then
@@ -502,4 +970,120 @@ function ns.CompareToEquipped(itemLinkOrId)
     end
 
     return delta, explanation
+end
+
+-- ---------------------------------------------------------------------------
+-- ns.ExplainItem(itemLinkOrId, specKey)
+-- See the file header for the full three tier model and the return shape.
+-- Always uses the currently logged in character's own equipped gear and
+-- level, the same as CompareToEquipped; specKey only changes which spec's
+-- weights judge the stats.
+-- ---------------------------------------------------------------------------
+function ns.ExplainItem(itemLinkOrId, specKey)
+    local link, itemID = NormalizeItem(itemLinkOrId)
+    if not itemID then
+        return nil, "That is not a recognisable item."
+    end
+
+    local classFile, tab = ResolveSpecKey(specKey)
+    local level = CurrentLevel()
+    local meta = ns.GetItemMeta and ns.GetItemMeta(itemID)
+
+    local result = {
+        itemID = itemID,
+        link = link,
+        name = meta and meta.name,
+        spec = { class = classFile, tab = tab },
+    }
+
+    -- Tier 1. Checked before spec data even matters, because whether an item
+    -- can be equipped does not depend on whether GearScout has researched
+    -- weights for the spec.
+    result.blocking = GetBlockingProblems(itemID, classFile, level, meta)
+
+    local specData = GetSpecData(classFile, tab)
+    if not specData then
+        result.noData = true
+        result.reason = NoDataReason(classFile, tab)
+        if #result.blocking > 0 then
+            local texts = {}
+            for _, p in ipairs(result.blocking) do texts[#texts + 1] = p.text end
+            result.verdict = "blocked"
+            result.verdictText = table.concat(texts, " ")
+        else
+            result.verdict = "no data"
+            result.verdictText = result.reason
+        end
+        return result
+    end
+
+    result.spec.name = specData.name
+    result.confidence = specData.confidence
+
+    if #result.blocking > 0 then
+        local texts = {}
+        for _, p in ipairs(result.blocking) do texts[#texts + 1] = p.text end
+        result.verdict = "blocked"
+        result.verdictText = table.concat(texts, " ")
+    end
+
+    local specCacheKey = SpecCacheKey(classFile, tab)
+
+    -- Which slot this item would replace, exactly the way CompareToEquipped
+    -- resolves it, so the cap adjustment below and the equipped comparison
+    -- agree with each other.
+    local equipLoc = meta and meta.equipLoc
+    local slotIDs = equipLoc and EQUIP_SLOTS[equipLoc]
+    local slotID = slotIDs and PickReplaceSlot(slotIDs, classFile, tab) or nil
+    local equippedLink = slotID and GetEquippedLink(slotID) or nil
+
+    -- Tier 3, every stat on the item.
+    local stats, rawTotal = BuildStatBreakdown(itemID, specData, specCacheKey, slotID, classFile)
+    result.stats = stats
+
+    local weaponScore = 0
+    if specData.weaponDPSWeight and meta and RANGED_EQUIP_LOCS[meta.equipLoc or ""] then
+        local dps = GetWeaponDPS(itemID)
+        if dps then
+            weaponScore = dps * specData.weaponDPSWeight
+            result.weapon = { dps = dps, weight = specData.weaponDPSWeight, contribution = weaponScore }
+        else
+            result.weapon = { note = "GearScout could not read this weapon's damage per second yet. Hover it once in game, then check again." }
+        end
+    end
+
+    -- Tier 2.
+    local armorFraction, armorNote = GetArmorTierPenalty(itemID, classFile, level)
+    local total = rawTotal + weaponScore
+    if armorFraction then
+        total = total * (1 - armorFraction)
+        result.armorPenalty = { fraction = armorFraction, note = armorNote }
+    end
+    result.total = total
+
+    if slotID then
+        result.slotID = slotID
+        if not equippedLink then
+            result.equippedTotal = 0
+            result.delta = total
+        else
+            local equippedTotal = ns.ScoreItem(equippedLink, { class = classFile, tab = tab }, slotID) or 0
+            result.equippedTotal = equippedTotal
+            result.delta = total - equippedTotal
+        end
+        if not result.verdict then
+            result.verdict, result.verdictText = VerdictSentence(result.delta, equippedLink, result.equippedTotal)
+        end
+    elseif not result.verdict then
+        result.verdict = "no slot"
+        result.verdictText = "GearScout does not know which equipment slot that item goes in yet, so it cannot be compared to what you have equipped."
+    end
+
+    if specData.confidence and specData.confidence ~= "high" and result.verdict ~= "blocked" then
+        result.confidenceNote = format(
+            "GearScout's data for %s is marked %s confidence, so treat this as a rough guide, not a final answer.",
+            specData.name or classFile, specData.confidence)
+    end
+
+    return result
 end

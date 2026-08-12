@@ -2,9 +2,18 @@
 -- Puts what GearScout knows onto the item tooltip, which is where a player is
 -- already looking when the question "is this better" occurs to them.
 --
--- Two lines at most, and only when there is something worth saying:
+-- What gets added, and only when there is something worth saying:
 --   where the item drops, an O(1) lookup in the shipped loot table
---   how it scores against what is worn, when the spec has trusted weights
+--   a verdict line from ns.ExplainItem: upgrade, downgrade, cannot equip, or
+--     no data for this spec yet
+--   the one or two stats on the item worth saying out loud: a stat that
+--     does nothing for this class at all, or a lighter armor type than the
+--     class could be wearing from the level that matters
+--
+-- A tooltip is not a report. When a tier 1 blocking problem exists, that
+-- line is the whole story and nothing else from ns.ExplainItem is shown
+-- under it, so the message stays unambiguous instead of getting diluted by
+-- stat detail that does not change the answer.
 --
 -- The hook is deliberately defensive. A tooltip handler runs constantly, and
 -- one that throws produces an error every time the mouse moves, which is far
@@ -22,6 +31,25 @@ local failures = 0
 -- cannot change without gear changing, which clears this.
 local lineCache = {}
 
+-- Colours match ns.T.good, ns.T.warn, ns.T.bad and ns.T.dim, written out
+-- directly rather than read from ns.T so a tooltip line never shifts colour
+-- when the player changes skin.
+local COLOR_GOOD = { r = 0.278, g = 0.816, b = 0.416 }
+local COLOR_WARN = { r = 1.000, g = 0.741, b = 0.180 }
+local COLOR_BAD  = { r = 1.000, g = 0.373, b = 0.341 }
+local COLOR_DIM  = { r = 0.541, g = 0.580, b = 0.651 }
+
+local VERDICT_COLOR = {
+    blocked   = COLOR_BAD,
+    downgrade = COLOR_BAD,
+    upgrade   = COLOR_GOOD,
+    ["empty slot"] = COLOR_GOOD,
+}
+
+local function AddLine(lines, text, color)
+    lines[#lines + 1] = { text = text, r = color.r, g = color.g, b = color.b }
+end
+
 local function BuildLines(itemLink)
     local itemID = ns.ParseLink and ns.ParseLink(itemLink)
     if not itemID then return nil end
@@ -37,38 +65,43 @@ local function BuildLines(itemLink)
     local where = ns.DescribeItemSource and ns.DescribeItemSource(itemID)
     if where then
         lines = lines or {}
-        lines[#lines + 1] = { text = where, r = 0.55, g = 0.58, b = 0.65 }
+        AddLine(lines, where, COLOR_DIM)
     end
 
-    -- Scoring is only offered when the spec actually has weights. A spec with
-    -- no data says nothing rather than implying an item is worthless.
-    if ns.CompareToEquipped then
-        local ok, delta, why = pcall(ns.CompareToEquipped, itemLink)
-        if ok and type(delta) == "number" then
+    -- Scoring is only offered when GearScout can actually say something
+    -- about the item. ExplainItem itself decides that; a spec with no
+    -- researched weights still gets one honest line saying so, never a
+    -- guessed number.
+    if ns.ExplainItem then
+        local ok, explain = pcall(ns.ExplainItem, itemLink)
+        if ok and explain and explain.verdictText then
             lines = lines or {}
-            if delta > 0.5 then
-                lines[#lines + 1] = {
-                    text = format("GearScout: an upgrade, %+.0f over what you are wearing.", delta),
-                    r = 0.28, g = 0.82, b = 0.42,
-                }
-            elseif delta < -0.5 then
-                lines[#lines + 1] = {
-                    text = format("GearScout: worse than what you are wearing, %+.0f.", delta),
-                    r = 1.00, g = 0.37, b = 0.34,
-                }
+            AddLine(lines, "GearScout: " .. explain.verdictText, VERDICT_COLOR[explain.verdict] or COLOR_DIM)
+
+            if explain.verdict == "blocked" then
+                -- The blocking problem is the entire answer. Nothing below
+                -- it would change that, so nothing below it is shown.
             else
-                lines[#lines + 1] = {
-                    text = "GearScout: about the same as what you are wearing.",
-                    r = 0.55, g = 0.58, b = 0.65,
-                }
-            end
-        elseif ok and why then
-            -- Only surface a reason when it is genuinely informative, not for
-            -- every unscoreable trinket in the game.
-            if type(why) == "string" and why:find("no stat weight", 1, true) then
-                lines = lines or {}
-                lines[#lines + 1] = { text = "GearScout: no stat weights for your spec yet.",
-                                      r = 0.55, g = 0.58, b = 0.65 }
+                -- The single most valuable line this feature produces: which
+                -- stats on this item do nothing, or next to nothing, for
+                -- this class, said in plain words instead of buried in a
+                -- total. Dead stats are sorted first by BuildStatBreakdown,
+                -- so the first one or two rows are the ones most worth
+                -- saying, and at most two are shown to keep this tight.
+                local shown = 0
+                if explain.stats then
+                    for _, s in ipairs(explain.stats) do
+                        if shown >= 2 then break end
+                        if s.note and (s.dead or s.nearZero) then
+                            AddLine(lines, s.note, COLOR_WARN)
+                            shown = shown + 1
+                        end
+                    end
+                end
+
+                if explain.armorPenalty and explain.armorPenalty.note then
+                    AddLine(lines, explain.armorPenalty.note, COLOR_DIM)
+                end
             end
         end
     end

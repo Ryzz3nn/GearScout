@@ -184,29 +184,25 @@ function ns.AddDamageFindings(report)
     local byName = {}
     for _, s in ipairs(report.spellDamage) do byName[s.name] = s end
 
-    -- A maintenance or cooldown button you own that produced no damage at all
-    -- is much stronger evidence than a missing cast count on its own.
-    for _, entry in ipairs(profile.list) do
-        if entry.known and (entry.kind == "dot" or entry.kind == "cd") then
-            if not byName[entry.name] then
-                local already = false
-                for _, f in ipairs(report.findings) do
-                    if f.title:find(entry.name, 1, true) then already = true break end
-                end
-                if not already then
-                    report.findings[#report.findings + 1] = {
-                        sev = SEV.WARN,
-                        title = entry.name .. " did no damage at all",
-                        detail = "Details recorded zero damage from this spell during the fight, so it was either never cast or never landed.",
-                        fix = "This is one of the buttons your spec is built around. Get it onto your bars and use it.",
-                        pct = 0,
-                    }
-                end
-            end
-        end
-    end
-
+    -- REMOVED: a check that flagged any tracked spell Details recorded no
+    -- damage for, on the theory that it had never been cast.
+    --
+    -- The premise is simply wrong. A large share of the spells worth tracking
+    -- deal no damage by design: Hunter's Mark, Aspect of the Hawk, Battle
+    -- Shout, Blessing of Might, Righteous Fury, Faerie Fire, Demoralizing
+    -- Shout, and cooldowns like Rapid Fire, Bestial Wrath and Avenging Wrath.
+    -- It told a hunter who applied Hunter's Mark before pulling that he had
+    -- never used it.
+    --
+    -- Deleted rather than patched with a list of exceptions, because that list
+    -- would never be complete and every gap in it is a false accusation. The
+    -- question it was trying to answer is already answered properly and
+    -- directly elsewhere: cast counts come from the cast log, and whether a
+    -- buff or debuff was actually up comes from sampling the real auras.
+    -- Absence of damage was never evidence of anything.
     -- A pet that was out all fight and dealt nothing is doing nothing useful.
+    -- This one survives the reasoning above because a pet's entire job is to
+    -- deal damage, so zero from it really does mean something is wrong.
     if (report.petUptime or 0) > 0.7 and not report.petDamage
        and (ns.playerClass == "HUNTER" or ns.playerClass == "WARLOCK") then
         report.findings[#report.findings + 1] = {

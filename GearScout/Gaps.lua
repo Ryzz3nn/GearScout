@@ -125,11 +125,37 @@ local function BuildAmmoInfo()
     info.needsAmmo = true
     info.ammoKind = kind
 
-    local ammoLink = GetInventoryItemLink("player", 0)
-    info.ammoLink = ammoLink
-    if not ammoLink then return info end
+    -- The ammo slot is inventory id 0, but reading it with a single call is
+    -- unreliable on this client, the same way the bag slots were. Several
+    -- signals are tried and any one of them proving ammo exists is enough.
+    -- If every one of them comes back empty, that is treated as "cannot tell"
+    -- rather than "no ammo", because falsely telling a hunter their quiver is
+    -- empty is worse than saying nothing.
+    local AMMO_SLOT = 0
+    local ammoLink = GetInventoryItemLink("player", AMMO_SLOT)
+    local ammoID = _G.GetInventoryItemID and GetInventoryItemID("player", AMMO_SLOT) or nil
+    local ammoTex = _G.GetInventoryItemTexture and GetInventoryItemTexture("player", AMMO_SLOT) or nil
+    local count = GetInventoryItemCount and (GetInventoryItemCount("player", AMMO_SLOT) or 0) or 0
 
-    info.count = GetInventoryItemCount("player", 0) or 0
+    info.ammoLink = ammoLink
+    info.count = count
+
+    local anySignal = ammoLink or ammoID or ammoTex or (count > 0)
+    if not anySignal then
+        -- Nothing answered. Distinguish an empty slot from an API that does
+        -- not report this slot at all: if the ranged weapon reads fine but
+        -- every ammo probe is silent, the probes are the problem.
+        info.unknown = true
+        return info
+    end
+
+    if not ammoLink then
+        -- Something is loaded, we just could not get a link for it. That is
+        -- enough to stay quiet about an empty slot.
+        info.present = true
+        return info
+    end
+    info.present = true
 
     local meta = ns.GetItemMeta(ammoLink)
     if meta then info.ammoName = meta.name end
@@ -146,7 +172,12 @@ local function CheckAmmo(issues, info)
     if not info.needsAmmo then return end
     local rec = { slotID = 0, label = "Ammo" }
 
-    if not info.ammoLink or info.count <= 0 then
+    -- Only accuse when the client actually said the slot is empty. When it
+    -- said nothing at all, stay silent: a hunter who can see their own ammo
+    -- being told they have none destroys trust in every other line here.
+    if info.unknown then return end
+
+    if not info.present then
         Add(issues, SEV.CRITICAL, rec,
             "You have no ammo loaded",
             "Your bow, crossbow or gun needs arrows or bullets sitting in your ammo slot to fire at all. That slot is empty right now, so you cannot attack at range.",
@@ -168,7 +199,11 @@ local function CheckAmmo(issues, info)
             W.oldAmmo)
     end
 
-    if info.count < 50 then
+    -- A count of zero here means the client would not tell us, not that the
+    -- quiver is empty, because an actually empty slot was already handled
+    -- above. Warning that someone has "0 left" while they can see a full
+    -- quiver is the same false accusation as the one this file just fixed.
+    if info.count > 0 and info.count < 50 then
         Add(issues, SEV.WARN, rec,
             format("You are low on ammo: %d left", info.count),
             "Ammo is used up on every shot. Running out in the middle of a fight leaves you with no ranged attack at all until you restock.",
@@ -184,15 +219,35 @@ end
 -- fine here: either one means "you own something that speeds up your shooting",
 -- which is all this check needs to know. Bag slots are inventory ids 20-23.
 -- ---------------------------------------------------------------------------
+-- Bag slots were read as hardcoded inventory ids 20 to 23, which returned
+-- nothing on this client and made a character with three bags and a quiver
+-- look like they had neither. Ask the container API for the inventory id
+-- instead of assuming it, and identify a quiver by its item class rather than
+-- its equip location, since a quiver does not reliably report INVTYPE_QUIVER.
+local BagInvID = (C_Container and C_Container.ContainerIDToInventoryID)
+                 or _G.ContainerIDToInventoryID
+local BagNumSlots = (C_Container and C_Container.GetContainerNumSlots)
+                    or _G.GetContainerNumSlots
+
+local ITEM_CLASS_QUIVER = 11   -- subclass 2 is Quiver, 3 is Ammo Pouch
+
+-- The link of whatever is equipped in bag slot 1 to 4, or nil.
+local function EquippedBagLink(bag)
+    if not BagInvID then return nil end
+    local ok, invID = pcall(BagInvID, bag)
+    if not ok or not invID then return nil end
+    return GetInventoryItemLink("player", invID)
+end
+
 local function CheckQuiver(issues, ammoInfo)
     if not ammoInfo.needsAmmo then return end
 
     local hasOne = false
-    for slot = 20, 23 do
-        local link = GetInventoryItemLink("player", slot)
-        if link then
-            local meta = ns.GetItemMeta(link)
-            if meta and meta.equipLoc == "INVTYPE_QUIVER" then
+    for bag = 1, (_G.NUM_BAG_SLOTS or 4) do
+        local link = EquippedBagLink(bag)
+        if link and GetItemInfoInstant then
+            local _, _, _, _, _, classID = GetItemInfoInstant(link)
+            if classID == ITEM_CLASS_QUIVER then
                 hasOne = true
                 break
             end
@@ -318,9 +373,17 @@ end
 local GetFreeSlots = (C_Container and C_Container.GetContainerNumFreeSlots) or _G.GetContainerNumFreeSlots
 
 local function CheckBags(issues)
+    -- A bag slot with any capacity has a bag in it. This is more reliable than
+    -- reading a hardcoded inventory id, which is what previously reported a
+    -- character carrying three bags and a quiver as having none.
     local hasExtraBag = false
-    for slot = 20, 23 do
-        if GetInventoryItemLink("player", slot) then
+    for bag = 1, (_G.NUM_BAG_SLOTS or 4) do
+        local slots = 0
+        if BagNumSlots then
+            local ok, n = pcall(BagNumSlots, bag)
+            if ok and type(n) == "number" then slots = n end
+        end
+        if slots > 0 or EquippedBagLink(bag) then
             hasExtraBag = true
             break
         end

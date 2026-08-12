@@ -124,6 +124,9 @@ local CLASS_NAME = {
 -- the addon says so once and then points at what genuinely helps instead.
 -- ---------------------------------------------------------------------------
 local ENCHANT_WORTH_IT = 58   -- Outland gear survives long enough to enchant
+-- Shared so the UI can colour and word things the same way this file scores
+-- them, rather than each deciding separately and disagreeing on screen.
+ns.ENCHANT_WORTH_IT = ENCHANT_WORTH_IT
 local SOCKETS_EXIST    = 58   -- nothing before Outland has a gem socket
 
 -- Where the upgrades actually are, by level bracket.
@@ -261,9 +264,18 @@ function ns.Analyze(scan)
                 }
             end
         else
-            -- missing enchant, but only once enchants are worth the gold
-            if rec.enchantable and not rec.enchanted and level >= ENCHANT_WORTH_IT then
+            -- The COUNT is always the truth. Only the advice and the score are
+            -- level gated. Counting only above the threshold made the summary
+            -- read "0 missing enchants" for a level 27 character who was in
+            -- fact missing eight of them, while the slot tooltip right next to
+            -- it said the enchant was missing. A panel that contradicts itself
+            -- is worse than one that says nothing.
+            local enchantMissing = rec.enchantable and not rec.enchanted
+            if enchantMissing then
                 counts.missingEnchants = counts.missingEnchants + 1
+            end
+
+            if enchantMissing and level >= ENCHANT_WORTH_IT then
                 penalty = penalty + W.missingEnch
                 groups.missingEnch[#groups.missingEnch + 1] = {
                     rec = rec, slotName = slotName, penalty = W.missingEnch,
