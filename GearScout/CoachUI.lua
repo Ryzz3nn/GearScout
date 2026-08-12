@@ -9,7 +9,7 @@ local UI, T, SEV = ns.UI, ns.T, ns.SEVERITY
 local format, ipairs, unpack = string.format, ipairs, unpack
 
 local win, pages, tabBar
-local gearPage, upgradesPage, rotationPage, settingsPage
+local gearPage, upgradesPage, enchantsPage, rotationPage, settingsPage
 local scoreGrade, scoreValue, scoreBar, scoreSub
 local chips = {}
 local slotList, issueList, issueEmpty, issueCount
@@ -466,6 +466,25 @@ local function BuildUpgradesPage(parent)
     return page
 end
 
+-- Enchants.lua owns its own page too. It sits next to Upgrades because both
+-- answer "what do I do about this", and because an enchant is the one upgrade
+-- a player can act on without waiting for a drop.
+local function BuildEnchantsPage(parent)
+    local page = CreateFrame("Frame", nil, parent)
+    page:SetAllPoints()
+
+    if ns.BuildEnchantsPage then
+        ns.BuildEnchantsPage(page)
+        return page
+    end
+
+    local msg = UI.Font(page, 12, T.dim, nil, "CENTER")
+    msg:SetPoint("CENTER")
+    msg:SetWidth(420)
+    msg:SetText("The enchanting guide is not loaded in this build.")
+    return page
+end
+
 local function BuildRotationPage(parent)
     local page = CreateFrame("Frame", nil, parent)
     page:SetAllPoints()
@@ -691,7 +710,7 @@ local function Build()
     -- before the pages below exist. The guard keeps that first call harmless.
     -- Upgrades sits next to Gear on purpose: the gear tab tells you what is
     -- wrong, and the natural next question is what to do about it.
-    tabBar = UI.TabBar(win.content, { "Gear", "Upgrades", "Rotation", "Settings" }, function(i)
+    tabBar = UI.TabBar(win.content, { "Gear", "Upgrades", "Enchants", "Rotation", "Settings" }, function(i)
         if not pages then return end
         for j, p in ipairs(pages) do p:SetShown(i == j) end
     end)
@@ -708,9 +727,12 @@ local function Build()
 
     gearPage     = BuildGearPage(body)
     upgradesPage = BuildUpgradesPage(body)
+    enchantsPage = BuildEnchantsPage(body)
     rotationPage = BuildRotationPage(body)
     settingsPage = BuildSettingsPage(body)
-    pages = { gearPage, upgradesPage, rotationPage, settingsPage }
+    -- Same order as the tab bar above. The two lists are indexed against each
+    -- other, so a tab added to one has to be added to the other in step.
+    pages = { gearPage, upgradesPage, enchantsPage, rotationPage, settingsPage }
     tabBar:Select(1)
 
     -- footer
