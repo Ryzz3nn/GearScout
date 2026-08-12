@@ -1,0 +1,39 @@
+## Interface: 20506
+## Title: GearScout
+## Notes: Audits your gear and rotation, tells you what to fix, and answers gear queries from your raid lead.
+## Author: Ryzz3nn
+## Version: 0.10.0
+## SavedVariables: GearScoutDB, GearScoutData
+## SavedVariablesPerCharacter: GearScoutCharDB
+## OptionalDeps: Details, TradeSkillMaster
+## X-Category: Interface Enhancements
+
+Core.lua
+Skin.lua
+UI.lua
+
+Data\DungeonLoot.lua
+Data\ItemDB.lua
+Data\Rotations.lua
+Data\Catalogue.lua
+Data\CatalogueResearch.lua
+Data\StatWeights.lua
+
+Scan.lua
+Sources.lua
+ItemEval.lua
+Rules.lua
+Profiles.lua
+Buffs.lua
+Bags.lua
+Gaps.lua
+Quests.lua
+Deaths.lua
+
+DetailsBridge.lua
+Rotation.lua
+Collector.lua
+Comm.lua
+Tooltip.lua
+CoachUI.lua
+API.lua
