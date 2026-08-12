@@ -192,16 +192,23 @@ end
 local function MayAsk(sender, mode)
     if mode == "anyone" then return true end
 
+    -- Unit functions match a plain character name. CHAT_MSG_ADDON hands us
+    -- "Name-Realm", which never matches a same realm unit, so every check
+    -- below silently answered false until this was stripped.
+    local who = Short(sender)
+
     if mode == "leaders" then
-        if (UnitInRaid(sender) or UnitInParty(sender))
-           and (UnitIsGroupLeader(sender) or (UnitIsGroupAssistant and UnitIsGroupAssistant(sender))) then
+        local inGroup = UnitInRaid(who) or UnitInParty(who)
+        if not inGroup then return false, "they are not in your group" end
+        if UnitIsGroupLeader(who)
+           or (UnitIsGroupAssistant and UnitIsGroupAssistant(who)) then
             return true
         end
-        return false, "leaders only"
+        return false, "they are not the group leader, and you only answer leaders"
     end
 
     if mode == "guild" then
-        if IsGuildmate(Short(sender)) then return true end
+        if IsGuildmate(who) then return true end
         return false, "not sharing with guild"
     end
 
