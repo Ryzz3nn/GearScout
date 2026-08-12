@@ -192,6 +192,10 @@ end
 -- the paladin aura check sit there because they are right on some fights and
 -- wrong on others.
 --
+-- Two finished auras, as WeakAuras import strings, plus a step by step recipe
+-- for building them by hand, live in WEAKAURA.md at the root of this project.
+-- In game, /gearscout wa points at it. What follows is the short version.
+--
 -- A WeakAura that shows one icon per missing buff. Trigger type Custom,
 -- Trigger State Updater, custom trigger event GEARSCOUT_BUFFS_UPDATED, with
 -- Check On Every Frame left off so nothing polls:

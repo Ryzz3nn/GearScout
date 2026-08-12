@@ -937,6 +937,19 @@ SlashCmdList.GEARSCOUT = function(msg)
         ns.Print("Rotation data source: " .. tostring(ns.db.dataSource or "research")
             .. ", currently using " .. tostring(ns.GetProfileSource and ns.GetProfileSource())
             .. ". Switch with /gearscout data research or /gearscout data builtin.")
+    elseif msg == "wa" or msg == "weakaura" or msg == "weakauras" then
+        -- Deliberately four lines. The actual snippets are pages of Lua and a
+        -- wall of code in chat is unreadable and uncopyable, so this points at
+        -- the file that has them and prints the one call worth memorising.
+        ns.Print("WeakAuras: ready made import strings and copy paste snippets are in WEAKAURA.md, in the GearScout folder you downloaded.")
+        ns.Print("  Fastest way: /wa, click Import, paste the string from the top of that file.")
+        ns.Print("  Writing your own: trigger type Custom, event GEARSCOUT_BUFFS_UPDATED, then call GearScout.API.GetBuffReport()")
+        local api = ns.API
+        if api and api.GetMissingBuffCount then
+            local n = api.GetMissingBuffCount()
+            ns.Print(format("  Missing group buffs right now: %d%s", n,
+                (IsInGroup() or IsInRaid()) and "" or " (you are not in a group, so there is nobody to ask)"))
+        end
     elseif msg == "rot" or msg == "rotation" then
         -- A diagnostic that dies silently is worse than useless, so it always
         -- prints something even when the thing it is diagnosing is broken.
