@@ -643,11 +643,28 @@ end
 -- ---------------------------------------------------------------------------
 -- refresh
 -- ---------------------------------------------------------------------------
+-- Who the two lists currently hold. The window normally draws the player, but
+-- the officer console can point it at a decoded report from someone else, so
+-- "is it still the same person" takes both halves of that: whether the subject
+-- is the player at all, and, when it is not, which player it is. Recorded only
+-- once a refresh actually reaches the drawing below, so a refresh that bailed
+-- out early can never make the next one look like a routine redraw.
+local shownIsSelf, shownName
+
 local function Refresh()
     if not win or not win:IsShown() then return end
     local subject = ns.Subject()
     local report, scan = subject.report, subject.scan
     if not report or not scan then return end
+
+    -- A rebuild for the person already on screen must not move the view. This
+    -- runs on every scan, at the end of every fight and on every rescan, and
+    -- each one of those used to throw the issue list back to the top under
+    -- whoever was reading it. A genuine change of subject is the one case that
+    -- should start at the top, because it is different content.
+    local isSelf = ns.SubjectIsSelf()
+    local sameSubject = (isSelf == shownIsSelf) and (subject.name == shownName)
+    shownIsSelf, shownName = isSelf, subject.name
 
     scoreGrade:SetText(report.grade)
     scoreGrade:SetTextColor(unpack(report.gradeColor))
@@ -680,8 +697,8 @@ local function Refresh()
     chips.emptySlots.value:SetText(report.counts.emptySlots)
     chips.emptySlots.value:SetTextColor(unpack(report.counts.emptySlots > 0 and T.bad or T.good))
 
-    slotList:SetData(scan.slots)
-    issueList:SetData(report.issues)
+    slotList:SetData(scan.slots, sameSubject)
+    issueList:SetData(report.issues, sameSubject)
     issueEmpty:SetShown(n == 0)
     issueCount:SetText(n .. (n == 1 and " ISSUE" or " ISSUES"))
 

@@ -47,6 +47,46 @@
 --                   then nothing is claimed. This is why the guide leans on
 --                   "do you know it" rather than "is your skill high enough":
 --                   the first is knowable, the second mostly is not.
+--   requirements    the character level an option needs, read from the
+--                   client's own required level for the item, or from the
+--                   "Requires Level NNN" line of its tooltip when the client
+--                   will not answer directly; and the faction standing a
+--                   reputation enchant is sold at, which the shipped
+--                   reputation data carries per reward. The character's own
+--                   standing with that faction is asked of the client too, so
+--                   "you are not there yet" is a fact rather than an
+--                   assumption. A requirement that could not be read is never
+--                   invented: an option is treated as usable until something
+--                   readable says otherwise, because hiding a perfectly good
+--                   enchant on a suspicion is the worse mistake.
+--
+-- ---------------------------------------------------------------------------
+-- WHY THE LIST IS GROUPED RATHER THAN FILTERED
+-- ---------------------------------------------------------------------------
+-- A level 27 asking about their head slot is looking at a list where every
+-- entry needs level 70 and a faction ground to honored. Showing those first,
+-- unmarked, is the bug this grouping exists to fix. Hiding them outright is
+-- the other half of the same mistake, because "what should I work toward" is
+-- a question this page is supposed to answer.
+--
+-- So options land in three groups, in this order, each with its own heading
+-- that says what the group is waiting on:
+--
+--   usable now   nothing readable stands in the way. Ranked, best first, and
+--                the only group anything is ever called "best" in.
+--   soon         a level requirement within LEVEL_SOON levels, or an item
+--                level requirement the slot is close to clearing.
+--   a long way   a level requirement further out than that, or a reputation
+--                off         standing. Capped at MAX_FAR rows with the rest
+--                counted in the heading, since twenty level 70 glyphs listed
+--                in full at level 27 is noise, and three of them plus "and
+--                fourteen more like it" is the same information.
+--
+-- Reputation is always the far group even when the level is met, which is the
+-- same call Upgrades.lua's effort tiers already make and for the same stated
+-- reason: a character is not going to farm a faction on the way past, so
+-- listing that beside something they could do tonight makes a multi week
+-- grind read like an evening's plan.
 --
 -- Ranking uses Data/StatWeights.lua where that spec has researched weights,
 -- and falls back to a plain role preference where it does not, which the page
@@ -84,6 +124,23 @@ local CASE_LEARN = 2   -- you could apply it, but you do not know the recipe
 local CASE_OTHER = 3   -- somebody else has to apply it, or you buy it outright
 
 local CASE_COLOR = { [CASE_SELF] = "good", [CASE_LEARN] = "warn", [CASE_OTHER] = "accent" }
+
+-- ---------------------------------------------------------------------------
+-- what stands between this character and an option
+--
+-- Separate from the three cases above on purpose. A case answers "who does the
+-- work"; a gate answers "can it be done at all yet". An option can be one you
+-- know the recipe for and still be forty three levels out of reach.
+-- ---------------------------------------------------------------------------
+local GATE_NONE = 0   -- nothing readable stands in the way
+local GATE_SOON = 1   -- a few levels, or one better item in the slot
+local GATE_FAR  = 2   -- a long climb, or a faction to grind
+
+-- How many levels away still counts as soon. Ten is close enough that a
+-- character is going to cross it without changing what they are doing, which
+-- is the whole difference this number is drawing: soon is something to keep in
+-- mind, far is something to plan around.
+local LEVEL_SOON = 10
 
 -- Where a slot's permanent bonus comes from. Enchanting does not own all of
 -- them, and telling an enchanter to enchant their own legs would be wrong:
@@ -351,10 +408,44 @@ local function TagFromText(text)
     return nil
 end
 
+-- "Requires Level 70". Built from the client's own format string where it has
+-- one, so this keeps reading on a client that is not in English, and falls
+-- back to the English wording rather than to nothing when it does not.
+local function LevelPattern()
+    local g = _G.ITEM_MIN_LEVEL
+    if type(g) == "string" and g:find("%%d") then
+        -- Escape everything the pattern engine would otherwise read as syntax,
+        -- then turn the one placeholder into a capture.
+        local p = g:gsub("([%^%$%(%)%.%[%]%*%+%-%?])", "%%%1")
+        return (p:gsub("%%d", "(%%d+)"))
+    end
+    return "Requires Level (%d+)"
+end
+local LEVEL_PATTERN = LevelPattern()
+
+-- The character's own level. Nil when nothing will say, which is a real answer:
+-- with no level to compare against, no option is ever called out of reach.
+local function PlayerLevel()
+    local scan = ns.lastScan
+    local lvl = (scan and scan.level) or ns.playerLevel
+    if type(lvl) ~= "number" or lvl <= 0 then
+        local ok, l = pcall(_G.UnitLevel, "player")
+        if ok and type(l) == "number" then lvl = l end
+    end
+    if type(lvl) == "number" and lvl > 0 then return lvl end
+    return nil
+end
+
 -- What the game itself says an enchant does, plus anything useful it happens
 -- to print alongside. Every field is optional and absent means absent: nothing
 -- here fills a gap with an assumption.
 local spellInfoCache = {}
+-- Which spells have already been asked to load. A spell the server has nothing
+-- to say about would otherwise be requested again on every rebuild, and each
+-- request answers with SPELL_DATA_LOAD_RESULT, which triggers the next rebuild:
+-- a loop that never settles and rebuilds the list under the player's cursor
+-- forever. Asking once ends it.
+local spellRequested = {}
 local function SpellEnchantInfo(spellID)
     if not spellID then return nil end
     local rec = spellInfoCache[spellID]
@@ -397,13 +488,20 @@ local function SpellEnchantInfo(spellID)
             rec.skill = nil
         end
         rec.itemLevel = rec.itemLevel or tonumber(tipText:match("level (%d+) or higher item"))
+        -- A character level requirement, when the tooltip prints one. Most
+        -- enchant spells do not, and then nothing is claimed.
+        rec.level = tonumber(tipText:match(LEVEL_PATTERN))
     end
 
-    -- Nothing came back at all. Ask the client to load the spell and leave the
-    -- cache empty so the next look gets a real answer once it arrives.
+    -- Nothing came back at all. Ask the client to load the spell, once, and
+    -- leave the cache empty so the next look gets a real answer once it
+    -- arrives.
     if not rec.text then
-        if C_Spell and C_Spell.RequestLoadSpellData then
-            pcall(C_Spell.RequestLoadSpellData, spellID)
+        if not spellRequested[spellID] then
+            spellRequested[spellID] = true
+            if C_Spell and C_Spell.RequestLoadSpellData then
+                pcall(C_Spell.RequestLoadSpellData, spellID)
+            end
         end
         return nil
     end
@@ -413,27 +511,126 @@ local function SpellEnchantInfo(spellID)
 end
 
 -- Same idea for an item, used by the reputation enchants, the leg armors and
--- the scopes, which are all real items rather than spells.
-local itemTextCache = {}
-local function ItemEnchantText(itemID)
+-- the scopes, which are all real items rather than spells. One pass over the
+-- tooltip answers both questions it can answer, what the thing gives and what
+-- the game demands before it can be used, rather than building the same
+-- tooltip twice for two readers.
+local itemFactsCache = {}
+local function ItemFacts(itemID)
     if not itemID then return nil end
-    local cached = itemTextCache[itemID]
-    if cached ~= nil then return cached or nil end
+    local cached = itemFactsCache[itemID]
+    if cached then return cached end
+
+    local facts = {}
     local text = TipText("SetItemByID", itemID)
-    local best
     if text then
-        -- The line that describes the bonus is the one that mentions a stat.
-        -- The item's name, its binding and its level requirement are not it.
         for line in text:gmatch("[^\n]+") do
             local low = line:lower()
-            if not low:find("^requires") and not low:find("^binds") and TagFromText(line) then
-                best = Tidy(line)
-                break
+            local lvl = tonumber(line:match(LEVEL_PATTERN))
+            if lvl then
+                facts.level = facts.level or lvl
+            elseif not facts.detail and not low:find("^requires") and not low:find("^binds")
+                   and TagFromText(line) then
+                -- The line that describes the bonus is the one that mentions a
+                -- stat. The item's name, its binding and its requirements are
+                -- not it.
+                facts.detail = Tidy(line)
             end
         end
     end
-    itemTextCache[itemID] = best or false
-    return best
+
+    -- The client's own item record is the surer answer for a required level,
+    -- and it is not written in any one language, so it wins over the tooltip
+    -- line whenever it has something to say. Zero and one both mean "no
+    -- requirement" here, which is why neither is stored.
+    local okInfo, _, _, _, _, minLevel = pcall(GetItemInfo, itemID)
+    if okInfo and type(minLevel) == "number" and minLevel > 1 then
+        facts.level = minLevel
+    end
+
+    -- The client has not cached this item yet. Remembering that would freeze a
+    -- blank answer in place, so the miss is not stored and the next look, after
+    -- ITEM_CACHE_UPDATED, gets the real one.
+    if not text and not facts.level then return nil end
+
+    itemFactsCache[itemID] = facts
+    return facts
+end
+
+-- ---------------------------------------------------------------------------
+-- faction standing
+--
+-- The shipped reputation data names the faction a reward is sold by and the
+-- standing it is sold at, and carries the client's own faction id alongside.
+-- That id is what turns "you are not there yet" into a fact: the client is
+-- asked what this character actually stands at, and when it will not say,
+-- nothing at all is claimed about the character and the row states only what
+-- the reward costs.
+-- ---------------------------------------------------------------------------
+
+-- The client numbers standings from Hated at 1, so its Neutral is 4, while the
+-- shipped data's own ladder starts at Neutral. Three is the gap between them.
+local STANDING_BASE = 3
+
+local factionIDs
+local function FactionID(name)
+    if not factionIDs then
+        factionIDs = {}
+        local rep = ns.REP_REWARDS
+        if type(rep) == "table" then
+            for factionName, faction in pairs(rep) do
+                local id = type(faction) == "table" and faction.factionId
+                if type(id) == "number" then factionIDs[factionName] = id end
+            end
+        end
+    end
+    return name and factionIDs[name] or nil
+end
+
+-- The client's standing number for a faction, or nil when it will not say. A
+-- faction this character has never met usually answers nothing at all, and nil
+-- is the honest way to carry that rather than a zero that would read as
+-- "hated".
+local function ReadStanding(factionName)
+    local id = FactionID(factionName)
+    if not id then return nil end
+
+    if C_Reputation and C_Reputation.GetFactionDataByID then
+        local ok, data = pcall(C_Reputation.GetFactionDataByID, id)
+        if ok and type(data) == "table" and type(data.reaction) == "number" and data.reaction > 0 then
+            return data.reaction
+        end
+    end
+    if _G.GetFactionInfoByID then
+        local ok, _, _, standingID = pcall(_G.GetFactionInfoByID, id)
+        if ok and type(standingID) == "number" and standingID > 0 then
+            return standingID
+        end
+    end
+    return nil
+end
+
+-- Same answer plus the standing's name in the client's own words, remembered so
+-- a slot full of rewards from one faction asks about it once.
+local standingCache = {}
+local function Standing(factionName)
+    if not factionName then return nil end
+    local cached = standingCache[factionName]
+    if cached ~= nil then
+        if cached == false then return nil end
+        return cached.id, cached.name
+    end
+
+    local reaction = ReadStanding(factionName)
+    if not reaction then
+        standingCache[factionName] = false
+        return nil
+    end
+
+    local label = _G["FACTION_STANDING_LABEL" .. reaction]
+    local rec = { id = reaction, name = type(label) == "string" and label or nil }
+    standingCache[factionName] = rec
+    return rec.id, rec.name
 end
 
 -- ---------------------------------------------------------------------------
@@ -811,9 +1008,77 @@ local function ParseEnchantName(name)
     return effect, tier or TIER_PLAIN
 end
 
+-- ---------------------------------------------------------------------------
+-- gates
+--
+-- Each of these takes a requirement that was READ from somewhere and, only if
+-- the character does not meet it, records how far out of reach that puts the
+-- option and one plain sentence saying why. Nothing here ever infers a
+-- requirement from a name, an id or an era: no readable requirement means no
+-- gate, and the option stays in the usable group where it has always been.
+-- ---------------------------------------------------------------------------
+local function AddGate(opt, level, text)
+    if (opt.gate or GATE_NONE) < level then opt.gate = level end
+    opt.gateText = opt.gateText and (opt.gateText .. " " .. text) or text
+end
+
+local function LevelGate(opt, reqLevel, level)
+    if type(reqLevel) ~= "number" or reqLevel <= 1 then return end
+    opt.reqLevel = reqLevel
+    if not level or reqLevel <= level then return end
+    local gap = reqLevel - level
+    AddGate(opt, gap <= LEVEL_SOON and GATE_SOON or GATE_FAR,
+        format("Needs level %d and you are %d, so it is %d level%s away.",
+            reqLevel, level, gap, gap == 1 and "" or "s"))
+end
+
+-- Reputation is a gate even when the standing is only a few thousand points
+-- off, and it is always the far group rather than the near one. That is the
+-- same call Upgrades.lua makes about reputation rewards, for the reason stated
+-- there: a character is not going to farm a faction in passing, so it belongs
+-- beside the other multi week jobs and not beside tonight's.
+local function RepGate(opt, faction, standing, rank)
+    if not faction or not standing then return end
+    opt.repFaction, opt.repStanding = faction, standing
+
+    local have, haveName = Standing(faction)
+    if have and have >= (rank or 9) + STANDING_BASE then
+        opt.repMet = true
+        opt.repMetText = haveName
+            and format("You are already %s with %s.", haveName, faction)
+            or format("You already have the standing with %s.", faction)
+        return
+    end
+
+    opt.repGate = true
+    if haveName then
+        AddGate(opt, GATE_FAR, format("Costs %s standing with %s and you are %s with them.",
+            standing, faction, haveName))
+    else
+        AddGate(opt, GATE_FAR, format("Costs %s standing with %s, which has to be earned before any of it is for sale.",
+            standing, faction))
+    end
+end
+
+-- The item in the slot is too weak to carry this enchant. Which group that
+-- puts it in is a judgement, and this is the one place the file makes it:
+-- through the sixties an item's level tracks the character wearing it closely
+-- enough that a "level 60 or higher item" requirement is really a level 60
+-- character requirement, so the same LEVEL_SOON distance decides near from far.
+-- The sentence the player reads claims none of that. It states only the two
+-- numbers the client gave: what the enchant needs and what the item is.
+local function ItemLevelGate(opt, reqIlvl, wornIlvl, level)
+    if not reqIlvl or not wornIlvl or wornIlvl <= 0 or wornIlvl >= reqIlvl then return end
+    opt.itemGate = true
+    local far = level and (reqIlvl - level) > LEVEL_SOON
+    AddGate(opt, far and GATE_FAR or GATE_SOON,
+        format("Only goes on an item of level %d or higher, and the one you are wearing is level %d.",
+            reqIlvl, wornIlvl))
+end
+
 -- One enchanting option, fully judged. Every text field is written here rather
 -- than in a row update, because rows are pooled and must only ever set text.
-local function BuildEnchantOption(id, catName, isEnchanter, wornIlvl)
+local function BuildEnchantOption(id, catName, isEnchanter, wornIlvl, level)
     local spellID, icon = ResolveSpell(id, catName)
     local name = catName or (spellID and ns.SpellName(spellID)) or "Unknown enchant"
     local effect, tier = ParseEnchantName(name)
@@ -897,22 +1162,22 @@ local function BuildEnchantOption(id, catName, isEnchanter, wornIlvl)
             opt.note = format("Needs %d enchanting skill.", opt.reqSkill)
         end
     end
-    if opt.reqIlvl and wornIlvl and wornIlvl > 0 and wornIlvl < opt.reqIlvl then
-        local extra = format("This enchant needs an item of level %d or higher, and the one you are wearing is level %d.",
-            opt.reqIlvl, wornIlvl)
-        opt.note = opt.note and (opt.note .. " " .. extra) or extra
-        opt.blocked = true
-    end
+    -- What actually stands in the way. A spell tooltip rarely prints a
+    -- character level for an enchant, but when it does it is read like any
+    -- other requirement rather than assumed absent.
+    LevelGate(opt, info and info.level, level)
+    ItemLevelGate(opt, opt.reqIlvl, wornIlvl, level)
 
     return opt
 end
 
 -- Reputation enchants, leg armor and scopes are all real items rather than
 -- recipes, so they share one builder and differ only in who applies them.
-local function BuildItemOption(itemID, name, kind, extra)
+local function BuildItemOption(itemID, name, kind, extra, level)
     local meta = ns.GetItemMeta and ns.GetItemMeta(itemID) or nil
     local shown = (meta and meta.name) or name or "Unknown item"
-    local detail = ItemEnchantText(itemID)
+    local facts = ItemFacts(itemID)
+    local detail = facts and facts.detail or nil
     local tag = TagFromText(detail or shown)
 
     local opt = {
@@ -938,12 +1203,28 @@ local function BuildItemOption(itemID, name, kind, extra)
         opt.detail = "Still loading from the server. Reopen this tab in a moment."
     end
 
+    -- The level on the item itself, which is the requirement the head and
+    -- shoulder glyphs of this era carry and the one that made a level 70
+    -- reward read like a suggestion for a level 27. Read before the branch
+    -- below so the sentence a player meets first is the biggest wall.
+    LevelGate(opt, facts and facts.level, level)
+
     if kind == KIND_REP then
-        opt.action = format("Bought once from the %s quartermaster at %s standing. You apply it yourself, no enchanter involved.",
-            extra and extra.faction or "faction", (extra and extra.standing or "the required"):lower())
+        local who = (extra and extra.faction) or "the faction"
+        -- Several faction names carry their own article, and a blind prefix
+        -- turns those into "the The Sha'tar quartermaster".
+        local article = who:find("^The ") and "" or "the "
+        opt.action = format("Bought once from %s%s quartermaster at %s standing. You apply it yourself, no enchanter involved.",
+            article, who, (extra and extra.standing or "the required"):lower())
         opt.mats = "Costs reputation and a little gold, and it never wears off."
         opt.standing = extra and extra.standing
         opt.rank = extra and extra.rank or 9
+        RepGate(opt, extra and extra.faction, extra and extra.standing, opt.rank)
+        -- Standing already earned is worth saying first, because it turns the
+        -- whole row from a plan into an errand.
+        if opt.repMetText then
+            opt.action = opt.repMetText .. " " .. opt.action
+        end
     elseif kind == KIND_LEG then
         opt.action = format("A %s makes this. It is an item, so you can buy one off the auction house and apply it yourself.",
             (extra and extra.profession or "crafter"):lower())
@@ -961,9 +1242,16 @@ end
 -- ---------------------------------------------------------------------------
 local MAX_RANKED   = 6
 local MAX_UNRANKED = 6
+-- How many out of reach options are worth printing in full. Enough to see what
+-- the slot eventually offers and what it costs, not enough to bury the one
+-- thing that can be done today. Whatever is cut is counted in the heading, so
+-- nothing disappears silently.
+local MAX_SOON     = 4
+local MAX_FAR      = 3
 
 local function ByValue(a, b)
-    if a.blocked ~= b.blocked then return not a.blocked end
+    local ga, gb = a.gate or GATE_NONE, b.gate or GATE_NONE
+    if ga ~= gb then return ga < gb end
     if a.value ~= b.value then return a.value > b.value end
     if a.tier ~= b.tier then return a.tier > b.tier end
     return (a.spellID or a.itemID or 0) > (b.spellID or b.itemID or 0)
@@ -973,9 +1261,53 @@ end
 -- easiest one is the one worth telling somebody about first. Same rule
 -- Sources.lua already applies to the same data.
 local function ByStanding(a, b)
+    local ga, gb = a.gate or GATE_NONE, b.gate or GATE_NONE
+    if ga ~= gb then return ga < gb end
     local ra, rb = a.rank or 9, b.rank or 9
     if ra ~= rb then return ra < rb end
     return (a.name or "") < (b.name or "")
+end
+
+-- One sentence describing what a whole group is waiting on, built from what
+-- was read about the rows in it rather than from what era they belong to. Used
+-- as the note under a group heading, so the player never has to open three
+-- rows to find out what the heading means.
+local function GateSummary(rows, level)
+    local n = #rows
+    if n == 0 then return nil end
+
+    local minLevel, levelRows, repRows, itemRows = nil, 0, 0, 0
+    for i = 1, n do
+        local o = rows[i]
+        if o.reqLevel then
+            levelRows = levelRows + 1
+            if not minLevel or o.reqLevel < minLevel then minLevel = o.reqLevel end
+        end
+        if o.repGate then repRows = repRows + 1 end
+        if o.itemGate then itemRows = itemRows + 1 end
+    end
+
+    local parts = {}
+    if minLevel then
+        local who = (levelRows == n) and "Every one of these needs" or format("%d of these need", levelRows)
+        parts[#parts + 1] = level
+            and format("%s level %d or higher, and you are %d.", who, minLevel, level)
+            or format("%s level %d or higher.", who, minLevel)
+    end
+    if repRows > 0 then
+        parts[#parts + 1] = (repRows == n)
+            and "They are bought with faction standing, which is a grind worth planning before you start rather than something you pick up on the way past."
+            or format("%d of them are bought with faction standing.", repRows)
+    end
+    if itemRows > 0 then
+        -- "also" only earns its place when there is a sentence before it.
+        local also = (#parts > 0) and "also " or ""
+        parts[#parts + 1] = (itemRows == n)
+            and format("They %swant a better item in this slot than the one you are wearing.", also)
+            or format("%d of them %swant a better item in this slot than the one you are wearing.", itemRows, also)
+    end
+    if #parts == 0 then return nil end
+    return table.concat(parts, " ")
 end
 
 -- Which catalogue category serves a weapon slot depends on what is in it.
@@ -1001,6 +1333,7 @@ function ns.GetEnchantPlan(slotID)
     local scan = ns.lastScan
     local rec = scan and scan.bySlotID and scan.bySlotID[slotID]
     local isEnchanter = ns.IsEnchanter and ns.IsEnchanter() or false
+    local level = PlayerLevel()
 
     local plan = {
         slotID      = slotID,
@@ -1009,8 +1342,11 @@ function ns.GetEnchantPlan(slotID)
         enchantable = rec and rec.enchantable or false,
         enchanted   = rec and rec.enchanted or false,
         priority    = SLOT_PRIORITY[slotID] or 99,
+        level       = level,
         options     = {},
         unranked    = {},
+        soon        = {},
+        far         = {},
     }
 
     if not rec or rec.empty then
@@ -1048,7 +1384,7 @@ function ns.GetEnchantPlan(slotID)
         local list = ns.GetEnchantSources and ns.GetEnchantSources(slotID) or {}
         for i = 1, #list do
             local e = list[i]
-            Push(BuildItemOption(e.itemID, e.name, KIND_REP, e))
+            Push(BuildItemOption(e.itemID, e.name, KIND_REP, e, level))
         end
         sort(ranked, ByStanding)
         sort(unranked, ByStanding)
@@ -1060,7 +1396,7 @@ function ns.GetEnchantPlan(slotID)
         local list = ns.LEG_ARMOR or {}
         for i = 1, #list do
             local e = list[i]
-            Push(BuildItemOption(e.id, e.name, KIND_LEG, e))
+            Push(BuildItemOption(e.id, e.name, KIND_LEG, e, level))
         end
         sort(ranked, ByValue)
 
@@ -1069,7 +1405,7 @@ function ns.GetEnchantPlan(slotID)
         local list = ns.WEAPON_SCOPES or {}
         for i = 1, #list do
             local e = list[i]
-            Push(BuildItemOption(e.id, e.name, KIND_SCOPE, e))
+            Push(BuildItemOption(e.id, e.name, KIND_SCOPE, e, level))
         end
         sort(ranked, ByValue)
 
@@ -1080,7 +1416,7 @@ function ns.GetEnchantPlan(slotID)
         plan.category = key
         for i = 1, #list do
             local e = list[i]
-            Push(BuildEnchantOption(e.id, e.name, isEnchanter, wornIlvl))
+            Push(BuildEnchantOption(e.id, e.name, isEnchanter, wornIlvl, level))
         end
         sort(ranked, ByValue)
         sort(unranked, ByValue)
@@ -1093,25 +1429,56 @@ function ns.GetEnchantPlan(slotID)
         end
     end
 
+    -- Split by what stands in the way BEFORE anything is capped. Cutting the
+    -- list to six first and then splitting would let thirty glyphs that need
+    -- level 70 push the one enchant a level 27 can actually buy off the end of
+    -- the page, which is the bug this whole section exists to stop.
+    local usable, usableUnranked, soon, far = {}, {}, {}, {}
+    local function Bucket(o, plain)
+        local g = o.gate or GATE_NONE
+        if g == GATE_NONE then
+            if plain then usableUnranked[#usableUnranked + 1] = o
+            else usable[#usable + 1] = o end
+        elseif g == GATE_SOON then
+            soon[#soon + 1] = o
+        else
+            far[#far + 1] = o
+        end
+    end
+    for i = 1, #ranked do Bucket(ranked[i], false) end
+    -- An option whose name never said what it does is still worth listing when
+    -- it is usable, and is not worth a second unrankable group once it is out
+    -- of reach as well, so out of reach ones join the group that describes what
+    -- is actually keeping them off the character.
+    for i = 1, #unranked do Bucket(unranked[i], true) end
+
+    local GateOrder = (plan.kind == KIND_REP) and ByStanding or ByValue
+    sort(soon, GateOrder)
+    sort(far, GateOrder)
+
     -- The best one for this character, and separately the best one they can
     -- actually put on today. Those are often not the same enchant, and the
     -- difference between them is the whole point of the page.
+    --
+    -- Only ever chosen from the usable group. Calling an enchant forty three
+    -- levels away "best for you" is exactly the advice this page was giving
+    -- before, and it is not advice, it is a distraction.
     --
     -- Not done for a reputation slot. That list is ordered by which standing is
     -- cheapest to reach rather than by which enchant is strongest, so calling
     -- the top of it "best for you" would be a claim the ordering never made.
     if plan.kind ~= KIND_REP then
-        for i = 1, #ranked do
-            local o = ranked[i]
-            if not plan.best and not o.blocked then plan.best = o end
-            if not plan.bestNow and o.case == CASE_SELF and not o.blocked then plan.bestNow = o end
+        for i = 1, #usable do
+            local o = usable[i]
+            if not plan.best then plan.best = o end
+            if not plan.bestNow and o.case == CASE_SELF then plan.bestNow = o end
         end
 
         if plan.best then plan.best.isBest = true end
         if plan.bestNow and plan.bestNow ~= plan.best then plan.bestNow.isBestNow = true end
     end
 
-    for i = 1, min(#ranked, MAX_RANKED) do plan.options[#plan.options + 1] = ranked[i] end
+    for i = 1, min(#usable, MAX_RANKED) do plan.options[#plan.options + 1] = usable[i] end
     -- The best one you can do now always earns its place on screen even when
     -- the ranking would have pushed it off the end of the list.
     if plan.bestNow and plan.bestNow ~= plan.best then
@@ -1122,8 +1489,25 @@ function ns.GetEnchantPlan(slotID)
         if not shown then plan.options[#plan.options + 1] = plan.bestNow end
     end
 
-    for i = 1, min(#unranked, MAX_UNRANKED) do plan.unranked[#plan.unranked + 1] = unranked[i] end
-    plan.unrankedTotal = #unranked
+    for i = 1, min(#usableUnranked, MAX_UNRANKED) do plan.unranked[#plan.unranked + 1] = usableUnranked[i] end
+    plan.unrankedTotal = #usableUnranked
+
+    for i = 1, min(#soon, MAX_SOON) do plan.soon[#plan.soon + 1] = soon[i] end
+    for i = 1, min(#far, MAX_FAR) do plan.far[#plan.far + 1] = far[i] end
+    plan.soonTotal  = #soon
+    plan.farTotal   = #far
+    plan.soonNote   = GateSummary(soon, level)
+    plan.farNote    = GateSummary(far, level)
+    plan.usableTotal = #usable + #usableUnranked
+    plan.gatedTotal  = #soon + #far
+
+    -- Nothing at all for this character yet. Said once, at the top of the
+    -- panel, rather than left for the player to work out from three headings.
+    if plan.usableTotal == 0 and plan.gatedTotal > 0 then
+        plan.gateNote = level
+            and format("Nothing on this list is usable at level %d yet. Everything below says what it is waiting on.", level)
+            or "Nothing on this list is usable yet. Everything below says what it is waiting on."
+    end
 
     planCache[slotID] = plan
     return plan
@@ -1155,8 +1539,10 @@ function ns.GetEnchantSummary()
         canDoNow     = 0,      -- slots with an enchant you know and have not applied
         bare         = 0,      -- enchantable slots with nothing on them
         needSomebody = 0,      -- bare slots where somebody else has to do the work
+        locked       = 0,      -- bare slots where nothing on the list is in reach yet
     }
     sum.rank, sum.maxRank, sum.rankSource = ns.GetEnchantingSkill()
+    sum.level = PlayerLevel()
 
     local scan = ns.lastScan
     if not scan or not scan.slots then return sum end
@@ -1171,6 +1557,12 @@ function ns.GetEnchantSummary()
                     sum.canDoNow = sum.canDoNow + 1
                 elseif not sum.isEnchanter or (plan and plan.kind ~= KIND_ENCHANT) then
                     sum.needSomebody = sum.needSomebody + 1
+                end
+                -- Counted separately from needSomebody, because "somebody else
+                -- has to do this" and "nobody can do this for you yet" are
+                -- different answers and only one of them is worth waiting for.
+                if plan and plan.usableTotal == 0 and (plan.gatedTotal or 0) > 0 then
+                    sum.locked = sum.locked + 1
                 end
             end
         end
@@ -1214,10 +1606,36 @@ end)
 
 -- A spell that had no description when it was first asked about now has one,
 -- so the cached miss is dropped and the page redrawn.
+--
+-- Only for spells this file actually asked about. The event fires for whatever
+-- the client and every other addon happens to load, and treating all of that as
+-- a reason to rebuild the enchant page was rebuilding it under the player's
+-- cursor for reasons that had nothing to do with enchanting.
 ns:On("SPELL_DATA_LOAD_RESULT", function(spellID)
-    if spellID then spellInfoCache[spellID] = nil end
+    if not spellID or not spellRequested[spellID] then return end
+    spellInfoCache[spellID] = nil
     NotifyChanged()
 end)
+
+-- This fires for every point of reputation, and a point of reputation changes
+-- no answer on this page: only crossing into a new standing does. So the
+-- standings already read are re-read and compared, which is a handful of
+-- lookups over the few factions this slot's rewards come from, and the page is
+-- only rebuilt when one of them has actually moved.
+ns:On("UPDATE_FACTION", function()
+    local moved = false
+    for name, rec in pairs(standingCache) do
+        local was = (type(rec) == "table") and rec.id or nil
+        if ReadStanding(name) ~= was then moved = true; break end
+    end
+    if not moved then return end
+    wipe(standingCache)
+    NotifyChanged()
+end)
+
+-- Levelling changes what is in reach, which is the whole point of the grouping,
+-- so it is worth a redraw of its own.
+ns:On("PLAYER_LEVEL_UP", NotifyChanged)
 
 -- Equipment changing invalidates immediately rather than on the debounce,
 -- because the page redraw that follows it must not read a plan built for the
@@ -1281,6 +1699,12 @@ local function SlotStatus(slotID)
 
     local plan = ns.PeekEnchantPlan(slotID)
     if plan and plan.bestNow then return "You can do this one now", T.good end
+    -- Everything this slot offers is out of reach. Said before the source lines
+    -- below, because "bought with reputation" reads as a plan and this is not
+    -- one yet.
+    if plan and plan.usableTotal == 0 and (plan.gatedTotal or 0) > 0 then
+        return "Nothing in reach yet", T.dim
+    end
     if plan and plan.kind == KIND_REP then return "Bought with reputation", T.accent end
     if plan and plan.kind == KIND_LEG then return "Leatherworker or tailor", T.accent end
     if plan and plan.kind == KIND_SCOPE then return "Engineer fits a scope", T.accent end
@@ -1385,11 +1809,17 @@ end
 -- ---------------------------------------------------------------------------
 -- option rows
 --
--- Four wrapping lines, none of them with a fixed height. Every one of them
+-- Five wrapping lines, none of them with a fixed height. Every one of them
 -- hangs off the bottom of the line above, and the measure function below adds
--- up the same four so a long sentence gets the room it needs instead of being
+-- up the same five so a long sentence gets the room it needs instead of being
 -- cut off. Fixed heights on wrapping text are what caused the truncation bugs
 -- this codebase already had once.
+--
+-- Section headings share the row and the pool rather than being a second
+-- widget type, the same way the upgrades list does it, but with their own font
+-- strings: a pooled row that reuses one font string across two very different
+-- looks has to remember to undo every property it changed, while two sets only
+-- have to be blanked.
 -- ---------------------------------------------------------------------------
 local OPT_PAD_TOP    = 6
 local OPT_PAD_BOTTOM = 6
@@ -1402,6 +1832,15 @@ local OPT_FLAG_W     = 130
 local OPT_GAP        = 2
 local OPT_GAP_ACTION = 4
 local OPT_MIN_HEIGHT = 54
+
+local OPT_HEAD_TOP    = 10
+local OPT_HEAD_BOTTOM = 8
+-- The shortest row this list can ever produce, which is a heading with a one
+-- line note under it. UI.List sizes its row pool from the height it is given,
+-- so that number has to be the true minimum across BOTH row shapes: hand it
+-- the option minimum instead and a panel full of short headings runs out of
+-- pooled rows before it reaches its own bottom edge.
+local OPT_ROW_MIN    = 34
 
 local function CreateOptionRow(list)
     local row = CreateFrame("Button", nil, list)
@@ -1434,15 +1873,25 @@ local function CreateOptionRow(list)
     row.title:SetPoint("TOPRIGHT", -(OPT_TEXT_RIGHT + OPT_FLAG_W + 6), -OPT_PAD_TOP)
     row.title:SetJustifyV("TOP")
 
-    -- The one word that says why this row is at the top of the list. Never
-    -- wraps, so it can never push the row's own layout around.
+    -- The one word that says why this row is at the top of the list, or what is
+    -- keeping it off the character. Never wraps, so it can never push the row's
+    -- own layout around.
     row.flag = NoWrap(UI.Font(row, 9, T.good, nil, "RIGHT"))
     row.flag:SetPoint("TOPRIGHT", -OPT_TEXT_RIGHT, -OPT_PAD_TOP - 1)
     row.flag:SetWidth(OPT_FLAG_W)
 
+    -- What stands in the way, directly under the name, because for a row the
+    -- character cannot use that is the only thing worth reading first. Empty
+    -- for anything usable, and an empty font string collapses to nothing, which
+    -- is why the measure below can add its gap unconditionally.
+    row.gate = UI.Font(row, 11, T.warn, nil, "LEFT")
+    row.gate:SetPoint("TOPLEFT",  row.title, "BOTTOMLEFT",  OPT_BODY_DX, -OPT_GAP)
+    row.gate:SetPoint("TOPRIGHT", row.title, "BOTTOMRIGHT", OPT_FLAG_W + 6, -OPT_GAP)
+    row.gate:SetJustifyV("TOP")
+
     row.detail = UI.Font(row, 11, T.dim, nil, "LEFT")
-    row.detail:SetPoint("TOPLEFT",  row.title, "BOTTOMLEFT",  OPT_BODY_DX, -OPT_GAP)
-    row.detail:SetPoint("TOPRIGHT", row.title, "BOTTOMRIGHT", OPT_FLAG_W + 6, -OPT_GAP)
+    row.detail:SetPoint("TOPLEFT",  row.gate, "BOTTOMLEFT",  0, -OPT_GAP)
+    row.detail:SetPoint("TOPRIGHT", row.gate, "BOTTOMRIGHT", 0, -OPT_GAP)
     row.detail:SetJustifyV("TOP")
 
     row.action = UI.Font(row, 11, T.accent, nil, "LEFT")
@@ -1455,10 +1904,29 @@ local function CreateOptionRow(list)
     row.mats:SetPoint("TOPRIGHT", row.action, "BOTTOMRIGHT", 0, -OPT_GAP)
     row.mats:SetJustifyV("TOP")
 
+    -- Heading widgets. Created once with the rest of the row, never in an
+    -- update, and simply blanked on every row that is not a heading.
+    row.headTitle = NoWrap(UI.Font(row, 11, T.accent, nil, "LEFT"))
+    row.headTitle:SetPoint("TOPLEFT", OPT_TEXT_LEFT, -OPT_HEAD_TOP)
+    row.headTitle:SetPoint("TOPRIGHT", -(OPT_TEXT_RIGHT + OPT_FLAG_W + 6), -OPT_HEAD_TOP)
+
+    row.headCount = NoWrap(UI.Font(row, 9, T.dim, nil, "RIGHT"))
+    row.headCount:SetPoint("TOPRIGHT", -OPT_TEXT_RIGHT, -OPT_HEAD_TOP - 1)
+    row.headCount:SetWidth(OPT_FLAG_W)
+
+    -- Wraps, and carries no height of its own, because what a group is waiting
+    -- on is a sentence and not a label.
+    row.headNote = UI.Font(row, 10, T.dim, nil, "LEFT")
+    row.headNote:SetPoint("TOPLEFT",  row.headTitle, "BOTTOMLEFT",  0, -OPT_GAP)
+    row.headNote:SetPoint("TOPRIGHT", row.headTitle, "BOTTOMRIGHT", OPT_FLAG_W + 6, -OPT_GAP)
+    row.headNote:SetJustifyV("TOP")
+
     row:SetScript("OnEnter", function(self)
-        self.hl:Show()
         local opt = self.opt
-        if not opt then return end
+        -- A heading is not an option, so it neither highlights nor has a
+        -- tooltip to show.
+        if not opt or opt.isHeader then return end
+        self.hl:Show()
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         if opt.link then
             GameTooltip:SetHyperlink(opt.link)
@@ -1480,16 +1948,30 @@ end
 
 -- The same insets the row above anchors against, because the two have to agree
 -- or rows get sized for a width they are not drawn at. The title stops short of
--- the flag in the corner; the three body lines run the full width of the row,
--- since the flag only ever occupies the first line.
+-- the flag in the corner; the four body lines run the full width of the row,
+-- since the flag only ever occupies the first line. A heading's own title stops
+-- short of its count in the same corner, but it starts at the body inset rather
+-- than the title one, because a heading carries no icon.
 local OPT_TITLE_INSET = OPT_TITLE_LEFT + OPT_TEXT_RIGHT + OPT_FLAG_W + 6
 local OPT_BODY_INSET  = OPT_TEXT_LEFT + OPT_TEXT_RIGHT
+local OPT_HEAD_INSET  = OPT_TEXT_LEFT + OPT_TEXT_RIGHT + OPT_FLAG_W + 6
 
 local function MeasureOptionRow(opt, width)
     width = width or 0
-    local tw = max(1, width - OPT_TITLE_INSET)
     local bw = max(1, width - OPT_BODY_INSET)
+
+    if opt.isHeader then
+        local hw = max(1, width - OPT_HEAD_INSET)
+        local h = OPT_HEAD_TOP + UI.MeasureText(11, hw, opt.label or "")
+        h = h + OPT_GAP + UI.MeasureText(10, bw, opt.headNote or "")
+        -- Never shorter than the height the row pool was sized from, so a list
+        -- of nothing but headings still has a row for every visible slot.
+        return max(OPT_ROW_MIN, h + OPT_HEAD_BOTTOM + 1)
+    end
+
+    local tw = max(1, width - OPT_TITLE_INSET)
     local h = OPT_PAD_TOP + UI.MeasureText(12, tw, opt.name or "")
+    h = h + OPT_GAP + UI.MeasureText(11, bw, opt.gateText or "")
     h = h + OPT_GAP + UI.MeasureText(11, bw, opt.detail or "")
     h = h + OPT_GAP_ACTION + UI.MeasureText(11, bw, opt.action or "")
     local mats = opt.matsText or opt.mats
@@ -1501,34 +1983,75 @@ local function MeasureOptionRow(opt, width)
     return max(OPT_MIN_HEIGHT, h + OPT_PAD_BOTTOM + 1)
 end
 
+-- Which corner label a row earns. A row nothing is in the way of gets the one
+-- that says why it is near the top; a row that is out of reach gets the one
+-- naming what is holding it there, since at that point nothing else about the
+-- row matters as much.
+local function FlagFor(opt)
+    if (opt.gate or GATE_NONE) ~= GATE_NONE then
+        if opt.reqLevel then return format("AT LEVEL %d", opt.reqLevel), T.dim end
+        if opt.repGate then return "COSTS REPUTATION", T.dim end
+        if opt.itemGate then return "NEEDS A BETTER ITEM", T.dim end
+        return "NOT YET", T.dim
+    end
+    if opt.isBest then return "BEST FOR YOU", T.accent end
+    if opt.isBestNow then return "BEST YOU CAN DO NOW", T.good end
+    if opt.trainToward then return "WORTH TRAINING FOR", T.warn end
+    return "", T.dim
+end
+
 local function UpdateOptionRow(row, opt)
     row.opt = opt
 
+    -- Every branch writes every widget. A pooled row must never keep the
+    -- heading, the stripe or the flag of whichever row it drew before it was
+    -- scrolled and reused.
+    if opt.isHeader then
+        local hc = T[opt.color or "accent"] or T.accent
+        row.headTitle:SetText(opt.label or "")
+        row.headTitle:SetTextColor(hc[1], hc[2], hc[3], hc[4] or 1)
+        row.headNote:SetText(opt.headNote or "")
+        row.headCount:SetText(opt.countText or "")
+
+        row.hl:Hide()
+        row.stripe:Hide()
+        row.icon:Hide()
+        row.title:SetText("")
+        row.gate:SetText("")
+        row.detail:SetText("")
+        row.action:SetText("")
+        row.mats:SetText("")
+        row.flag:SetText("")
+        return
+    end
+
+    row.headTitle:SetText("")
+    row.headNote:SetText("")
+    row.headCount:SetText("")
+
     local c = T[CASE_COLOR[opt.case or CASE_OTHER] or "accent"] or T.accent
     row.stripe:SetColorTexture(c[1], c[2], c[3], 1)
+    row.stripe:Show()
 
     row.icon:SetTexture(opt.icon or FALLBACK_ICON)
+    row.icon:Show()
     row.title:SetText(opt.name or "")
+
+    -- Out of reach reads quieter the further out it is, so a group of level 70
+    -- rewards never shouts louder than the enchant sitting above them that the
+    -- character could put on tonight.
+    row.gate:SetText(opt.gateText or "")
+    local gc = ((opt.gate or GATE_NONE) == GATE_SOON) and T.warn or T.dim
+    row.gate:SetTextColor(gc[1], gc[2], gc[3], gc[4] or 1)
+
     row.detail:SetText(opt.detail or "")
     row.action:SetText(opt.action or "")
     row.action:SetTextColor(c[1], c[2], c[3], 1)
     row.mats:SetText(opt.matsText or opt.mats or "")
 
-    if opt.isBest then
-        row.flag:SetText("BEST FOR YOU")
-        row.flag:SetTextColor(unpack(T.accent))
-    elseif opt.isBestNow then
-        row.flag:SetText("BEST YOU CAN DO NOW")
-        row.flag:SetTextColor(unpack(T.good))
-    elseif opt.trainToward then
-        row.flag:SetText("WORTH TRAINING FOR")
-        row.flag:SetTextColor(unpack(T.warn))
-    elseif opt.blocked then
-        row.flag:SetText("ITEM TOO LOW")
-        row.flag:SetTextColor(unpack(T.dim))
-    else
-        row.flag:SetText("")
-    end
+    local flag, fc = FlagFor(opt)
+    row.flag:SetText(flag)
+    row.flag:SetTextColor(fc[1], fc[2], fc[3], fc[4] or 1)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1619,9 +2142,38 @@ local function BasisText()
     return "GearScout has neither researched stat weights for your spec nor a confident read on your role, so this ordering is a rough one. Read the options rather than trusting the order."
 end
 
+-- One heading row. Built here rather than in the plan because it is a piece of
+-- the list's layout and not a piece of the answer, though every word in it
+-- comes from the plan. The field is headNote rather than note because an option
+-- row already carries a note of its own meaning something else entirely, and
+-- the two share a row.
+local function HeaderRow(label, headNote, color, shown, total)
+    local countText
+    if total and total > 0 then
+        countText = (shown < total)
+            and format("SHOWING %d OF %d", shown, total)
+            or format(total == 1 and "%d OPTION" or "%d OPTIONS", total)
+    end
+    return { isHeader = true, label = label, headNote = headNote, color = color, countText = countText }
+end
+
+-- Which slot the option list currently holds. The difference between "the
+-- player clicked a different slot" and "the same slot was rebuilt underneath
+-- them" is the difference between resetting the scroll and keeping it, and this
+-- is the only thing that can tell the two apart.
+local shownSlotID
+
 ShowSlot = function(slotID)
     selectedSlotID = slotID
     local plan = ns.GetEnchantPlan(slotID)
+
+    -- A rebuild of the slot already on screen must not move the view. This page
+    -- redraws itself whenever an item finishes loading, a spell description
+    -- arrives or the bags settle, which during a login is a steady stream, and
+    -- every one of those redraws used to yank the list back to the top under
+    -- whoever was reading it.
+    local sameSlot = (slotID == shownSlotID)
+    shownSlotID = slotID
 
     if not plan then
         ShowWorn(nil)
@@ -1636,14 +2188,21 @@ ShowSlot = function(slotID)
     ShowWorn(plan)
 
     -- The note is whatever this slot most needs said about it, in order of how
-    -- much it changes what the player should do.
+    -- much it changes what the player should do. "Nothing here is in reach yet"
+    -- outranks everything except the slot being unusable outright, because it
+    -- changes whether the rest of the panel is worth reading at all.
     local note = plan.note
-    if not note and plan.kind == KIND_REP and plan.sourceLine then
-        note = plan.sourceLine
-    elseif not note and plan.categoryNote then
-        note = plan.categoryNote
-    elseif not note and plan.enchanted then
-        note = "There is already an enchant on this one. GearScout cannot read which enchant it is, only that something is on there, so check the item tooltip before paying for a replacement."
+    if not note then
+        local parts = {}
+        if plan.gateNote then parts[#parts + 1] = plan.gateNote end
+        if plan.kind == KIND_REP and plan.sourceLine then
+            parts[#parts + 1] = plan.sourceLine
+        elseif plan.categoryNote then
+            parts[#parts + 1] = plan.categoryNote
+        elseif plan.enchanted then
+            parts[#parts + 1] = "There is already an enchant on this one. GearScout cannot read which enchant it is, only that something is on there, so check the item tooltip before paying for a replacement."
+        end
+        if #parts > 0 then note = table.concat(parts, " ") end
     end
 
     local showNote = note ~= nil and note ~= ""
@@ -1654,9 +2213,19 @@ ShowSlot = function(slotID)
 
     LayoutPanel(showNote, showBasis)
 
-    -- Ranked options first, then the ones that cannot honestly be ranked, with
-    -- a divider row's worth of explanation carried on the first of them.
+    -- Usable options first, then the ones that cannot honestly be ranked, then
+    -- what is out of reach, each group behind a heading that says what it is.
+    -- Headings only appear when there is something to separate: a slot where
+    -- everything is usable is the plain list it always was.
     local rows = {}
+    local grouped = (#plan.soon > 0 or #plan.far > 0)
+    local usableShown = #plan.options + #plan.unranked
+
+    if grouped and usableShown > 0 then
+        rows[#rows + 1] = HeaderRow("YOU CAN USE THESE NOW",
+            "Nothing readable stands between you and any of these.", "good",
+            usableShown, plan.usableTotal)
+    end
     for i = 1, #plan.options do rows[#rows + 1] = plan.options[i] end
     for i = 1, #plan.unranked do rows[#rows + 1] = plan.unranked[i] end
 
@@ -1670,10 +2239,28 @@ ShowSlot = function(slotID)
             first.mats or "", max(0, #plan.unranked - 1))
     end
 
-    optionHeader:SetText(plan.kind == KIND_ENCHANT and "WHAT TO PUT ON THIS SLOT, BEST FIRST"
-        or "WHAT GOES ON THIS SLOT")
+    if #plan.soon > 0 then
+        rows[#rows + 1] = HeaderRow("NOT YET, BUT CLOSE",
+            plan.soonNote or "A little more character or a little more gear and these open up.",
+            "warn", #plan.soon, plan.soonTotal)
+        for i = 1, #plan.soon do rows[#rows + 1] = plan.soon[i] end
+    end
 
-    optionList:SetData(rows)
+    if #plan.far > 0 then
+        rows[#rows + 1] = HeaderRow("A LONG WAY OFF",
+            plan.farNote or "These are here so you know they exist, not because they are worth planning around today.",
+            "dim", #plan.far, plan.farTotal)
+        for i = 1, #plan.far do rows[#rows + 1] = plan.far[i] end
+    end
+
+    if plan.kind ~= KIND_ENCHANT then
+        optionHeader:SetText("WHAT GOES ON THIS SLOT")
+    else
+        optionHeader:SetText(grouped and "WHAT TO PUT ON THIS SLOT, WHAT YOU CAN USE FIRST"
+            or "WHAT TO PUT ON THIS SLOT, BEST FIRST")
+    end
+
+    optionList:SetData(rows, sameSlot)
     optionEmpty:SetShown(#rows == 0)
     if #rows == 0 then
         optionEmpty:SetText(plan.note
@@ -1713,6 +2300,16 @@ RefreshBanner = function()
                 sum.canDoNow, sum.bare, sum.bare == 1 and "" or "s", sum.canDoNow == 1 and "s" or "ve")
         else
             parts[#parts + 1] = format("%d slot%s carrying no enchant.", sum.bare, sum.bare == 1 and " is" or "s are")
+        end
+        -- Said out loud so an empty looking slot list is not read as missing
+        -- data. Head and shoulder are reputation bought at level 70 in this
+        -- era, so a levelling character genuinely has nothing to do about them.
+        if sum.locked > 0 then
+            parts[#parts + 1] = sum.level
+                and format("%d of those ha%s nothing in reach at level %d, and each one says what it is waiting on.",
+                    sum.locked, sum.locked == 1 and "s" or "ve", sum.level)
+                or format("%d of those ha%s nothing in reach yet, and each one says what it is waiting on.",
+                    sum.locked, sum.locked == 1 and "s" or "ve")
         end
     else
         parts[#parts + 1] = "Every slot that can take an enchant already has one."
@@ -1812,10 +2409,11 @@ function ns.BuildEnchantsPage(page)
     optionHeader:SetPoint("TOPLEFT", 14, -62)
     optionHeader:SetText("WHAT TO PUT ON THIS SLOT, BEST FIRST")
 
-    -- Variable height rows. OPT_MIN_HEIGHT is only the shortest a row can be,
-    -- used to size the row pool; every row's real height comes from
+    -- Variable height rows. OPT_ROW_MIN is only the shortest a row can be,
+    -- which is a section heading rather than an option, and it is used purely
+    -- to size the row pool; every row's real height comes from
     -- MeasureOptionRow.
-    optionList = UI.List(rightPanel, OPT_MIN_HEIGHT, CreateOptionRow, UpdateOptionRow, MeasureOptionRow)
+    optionList = UI.List(rightPanel, OPT_ROW_MIN, CreateOptionRow, UpdateOptionRow, MeasureOptionRow)
     optionList:SetPoint("TOPLEFT", 8, -78)
     optionList:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -6, 8)
 

@@ -54,7 +54,7 @@ local ADDON, ns = ...
 local CreateFrame, UIParent, UnitLevel = CreateFrame, UIParent, UnitLevel
 local GetItemInfo, GetItemInfoInstant = GetItemInfo, GetItemInfoInstant
 local format, ipairs, pairs, type, wipe = string.format, ipairs, pairs, type, wipe
-local floor, max, unpack, select = math.floor, math.max, unpack, select
+local floor, max, min, unpack, select = math.floor, math.max, math.min, unpack, select
 
 -- ---------------------------------------------------------------------------
 -- equip slot mapping
@@ -885,6 +885,19 @@ local UPG_TAG_ROOM   = 78   -- reserved top right for the source label
 local UPG_ICON_BLOCK = 64   -- the icons plus the improvement figure under them
 local UPG_HEADER_H   = 32
 
+-- An item row can never be shorter than its icon column, because the
+-- improvement figure sits under the icons and has to have somewhere to sit.
+-- MeasureUpgradeRow uses this as its floor rather than repeating the sum.
+local UPG_ITEM_MIN_H = UPG_ICON_BLOCK + 6
+
+-- What UI.List is given as its rowHeight, which it documents as the shortest
+-- possible row because it sizes the row pool from it. That has to be the true
+-- minimum across every shape MeasureUpgradeRow can return, headings included:
+-- sizing the pool from the item floor alone left a view full of headings short
+-- of rows, so the bottom of the panel came up blank. Derived from the same two
+-- constants the measure function returns, so the two cannot drift apart.
+local UPG_ROW_MIN_H  = min(UPG_HEADER_H, UPG_ITEM_MIN_H)
+
 -- How much of the panel's bottom the auction house block claims when there is
 -- an auction house addon to read prices from: its divider, its heading and its
 -- list. One constant, used both to pin that block and to stop the earned list
@@ -1084,7 +1097,7 @@ local function MeasureUpgradeRow(item, width, withPrice)
 
     -- Never shorter than the icon column, so the improvement figure under the
     -- icons always has somewhere to sit.
-    return max(UPG_ICON_BLOCK + 6, h + 9)
+    return max(UPG_ITEM_MIN_H, h + 9)
 end
 
 local function MeasureEarnedRow(item, width)
@@ -1257,9 +1270,23 @@ local function ShowWorn(result)
     end
 end
 
+-- Which slot the two upgrade lists currently hold. The difference between "the
+-- player clicked a different slot" and "the same slot was rebuilt underneath
+-- them" is the difference between resetting the scroll and keeping it, and this
+-- is the only thing that can tell the two apart.
+local shownSlotID
+
 ShowSlot = function(slotID)
     selectedSlotID = slotID
     local result = ns.GetSlotUpgrades(slotID)
+
+    -- A rebuild of the slot already on screen must not move the view. This page
+    -- redraws itself every time the scan, the bags, the quest log or the item
+    -- cache changes, which during a login is a steady stream, and every one of
+    -- those redraws used to yank both lists back to the top under whoever was
+    -- reading them.
+    local sameSlot = (slotID == shownSlotID)
+    shownSlotID = slotID
 
     if not result then
         ShowWorn(nil)
@@ -1290,7 +1317,7 @@ ShowSlot = function(slotID)
 
     LayoutPanel(showCaveat, showPending, result.ahSource ~= nil)
 
-    earnedList:SetData(result.earned)
+    earnedList:SetData(result.earned, sameSlot)
     earnedEmpty:SetShown(#result.earned == 0 and not result.note)
     if #result.earned == 0 then
         earnedEmpty:SetText(result.worn
@@ -1299,7 +1326,7 @@ ShowSlot = function(slotID)
     end
 
     if result.ahSource then
-        boughtList:SetData(result.bought)
+        boughtList:SetData(result.bought, sameSlot)
         boughtList2Empty:SetShown(#result.bought == 0)
         -- This block is empty far more often now that soulbound drops, quest
         -- rewards and reputation rewards no longer get a price stapled to
@@ -1313,6 +1340,18 @@ ShowSlot = function(slotID)
 
     slotList:Refresh()
 end
+
+-- ITEM_CACHE_UPDATED is emitted once per item the server hands back, and the
+-- server hands back hundreds of them during a login, one at a time. Redrawing
+-- straight off that event meant one full slot evaluation, one rebuild of both
+-- lists and one measure pass over every row, per item. The trailing edge
+-- debounce collapses a burst into a single redraw and still always ends with
+-- one, so nothing that arrived late is left undrawn. The cache invalidation on
+-- the same event is deliberately left undebounced: it is a table wipe, and it
+-- has to have already happened by the time this runs.
+local RedrawSoon = ns.Debounce(0.3, function()
+    if upgPage and selectedSlotID then ShowSlot(selectedSlotID) end
+end)
 
 function ns.BuildUpgradesPage(page)
     upgPage = page
@@ -1395,11 +1434,12 @@ function ns.BuildUpgradesPage(page)
     earnedHeader:SetPoint("TOPLEFT", 14, -62)
     earnedHeader:SetText("EARNED, THINGS YOU GO AND GET")
 
-    -- Variable height rows. 70 is the shortest a row can be, which is the icon
-    -- column plus its padding, and it is only used to size the row pool; the
-    -- real height of each row comes from the measure function, so a drop with
-    -- a three line source description is no longer cut off mid sentence.
-    earnedList = UI.List(rightPanel, 70, CreateUpgradeRow, UpdateEarnedRow, MeasureEarnedRow)
+    -- Variable height rows. UPG_ROW_MIN_H is the shortest row of any shape this
+    -- list can hold, a section heading, and it is only used to size the row
+    -- pool; the real height of each row comes from the measure function, so a
+    -- drop with a three line source description is no longer cut off mid
+    -- sentence.
+    earnedList = UI.List(rightPanel, UPG_ROW_MIN_H, CreateUpgradeRow, UpdateEarnedRow, MeasureEarnedRow)
     earnedList:SetPoint("TOPLEFT", 8, -78)
     earnedList:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -6, 8)
 
@@ -1420,7 +1460,9 @@ function ns.BuildUpgradesPage(page)
     boughtHeader:SetPoint("TOPLEFT", boughtDivider, "BOTTOMLEFT", 4, -8)
     boughtHeader:SetText("BOUGHT, FROM THE AUCTION HOUSE")
 
-    boughtList = UI.List(rightPanel, 70, CreateUpgradeRow, UpdateBoughtRow, MeasureBoughtRow)
+    -- Same pool sizing rule as the earned list above: the shortest shape either
+    -- list can contain, not the shortest item row.
+    boughtList = UI.List(rightPanel, UPG_ROW_MIN_H, CreateUpgradeRow, UpdateBoughtRow, MeasureBoughtRow)
     boughtList:SetPoint("TOPLEFT", boughtHeader, "BOTTOMLEFT", -4, -6)
     boughtList:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -6, 8)
 
@@ -1439,9 +1481,7 @@ function ns.BuildUpgradesPage(page)
     ns:Sub("QUEST_UPGRADES_UPDATED", function()
         if upgPage and selectedSlotID then ShowSlot(selectedSlotID) end
     end)
-    ns:Sub("ITEM_CACHE_UPDATED", function()
-        if upgPage and selectedSlotID then ShowSlot(selectedSlotID) end
-    end)
+    ns:Sub("ITEM_CACHE_UPDATED", RedrawSoon)
 
     slotList:SetData(ns.SLOTS or {})
     ShowSlot((ns.SLOTS and ns.SLOTS[1] and ns.SLOTS[1].id) or 1)
