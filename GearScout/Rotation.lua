@@ -926,15 +926,19 @@ function ShowFight(fight)
     end
 
     emptyMsg:Hide()
+    -- Every field here is defaulted. A fight that arrived over the wire is
+    -- built from what the sender chose to share, so any single missing field
+    -- would otherwise throw inside the draw and leave the whole window blank
+    -- with no visible cause.
     specLine:SetText(format("%s  |  %s", fight.spec or "?",
-        fight.live and "fight in progress" or fight.target))
+        fight.live and "fight in progress" or (fight.target or "shared fight")))
 
     local petBit = ""
     if fight.petUptime then
         petBit = format("  |  pet out %d%%", ns.Round(fight.petUptime * 100))
     end
     summaryLine:SetText(format("%d casts in %s%s  |  %s",
-        fight.casts, ns.FmtTime(fight.dur), petBit, fight.zone or ""))
+        fight.casts or 0, ns.FmtTime(fight.dur or 0), petBit, fight.zone or ""))
 
     cpmText:SetText(format("%.0f", fight.cpm or 0))
     deadBar:SetValue(ns.Clamp(fight.deadPct or 0, 0, 1), true)
@@ -950,8 +954,8 @@ function ShowFight(fight)
         dpsBox:Hide()
     end
 
-    findingList:SetData(fight.findings, fight.live)
-    if #fight.findings == 0 then
+    findingList:SetData(fight.findings or {}, fight.live)
+    if #(fight.findings or {}) == 0 then
         emptyMsg:SetText(fight.live
             and "Nothing wrong so far. Keep going."
             or "Clean fight. Nothing stood out.")
