@@ -144,21 +144,165 @@ end
 
 -- ---------------------------------------------------------------------------
 -- group buffs
+--
+-- What your group could give you that you do not have. Three filters have
+-- already been applied by the time it reaches here: the class has to actually
+-- be in the group, that person has to be high enough level to have learned
+-- the spell, and your current spec has to have a real use for it. A Beast
+-- Mastery hunter is told about Blessing of Might and is never told about
+-- Blessing of Wisdom. A Holy paladin gets the opposite answer.
+--
+-- Burning Crusade rules are respected, so the list stays honest: one blessing
+-- per paladin, one totem per element, and totems, shouts, paladin auras and
+-- the imp's Blood Pact only count when the caster is in your own subgroup.
+--
+-- GetBuffReport() returns a freshly built table. Nothing in it is shared with
+-- the addon, so it is safe to keep and safe to edit.
+--
+--   {
+--       inGroup  = true,            -- false when you are on your own, both lists empty
+--       stamp    = 7,               -- only changes when the answer changes
+--       spec     = "Beast Mastery", -- nil until the spec profile has been built
+--       role     = "ranged",        -- melee, ranged, tank, healer, caster, unknown
+--       count    = 2,               -- #missing, the same number GetMissingBuffCount returns
+--       missing  = { entry, ... },  -- ask for these, most wanted first
+--       optional = { entry, ... },  -- talent gated or fight dependent, most wanted first
+--   }
+--
+--   entry = {
+--       key         = "might",              -- stable, never localized, safe to switch on
+--       label       = "Blessing of Might",  -- localized spell name, safe to print
+--       spellID     = 19740,                -- the spell the label came from
+--       icon        = 135906,               -- texture id, can be nil
+--       why         = "Straight attack power, so every hit lands harder.",
+--       from        = "Bob",                -- who in the group can cast it
+--       fromClass   = "paladin",            -- lower case, reads well in a sentence
+--       classFile   = "PALADIN",            -- upper case, for RAID_CLASS_COLORS
+--       scope       = "raid",               -- "party" means only your own subgroup counts
+--       slot        = "blessing",           -- nil, or a slot the caster can only fill once
+--       talent      = false,                -- true when the caster needs a talent for it
+--       situational = false,                -- true when it is only right on some fights
+--       score       = 0.87,                 -- 0 to 1, how much your spec wants it
+--       isSelf      = false,                -- true when you are the one who can cast it
+--   }
+--
+-- Everything on the optional list has talent or situational set. Kings and
+-- Sanctuary sit there because there is no way to tell from outside whether
+-- the paladin ever spent the point. Salvation, Thorns, Shadow Protection and
+-- the paladin aura check sit there because they are right on some fights and
+-- wrong on others.
+--
+-- A WeakAura that shows one icon per missing buff. Trigger type Custom,
+-- Trigger State Updater, custom trigger event GEARSCOUT_BUFFS_UPDATED, with
+-- Check On Every Frame left off so nothing polls:
+--
+--   function(allstates, event)
+--       local api = GearScout and GearScout.API
+--       if not api or not api.GetBuffReport then return false end
+--       for _, state in pairs(allstates) do
+--           state.show = false
+--           state.changed = true
+--       end
+--       for _, b in ipairs(api.GetBuffReport().missing) do
+--           allstates[b.key] = {
+--               show = true, changed = true,
+--               name = b.label, icon = b.icon,
+--               caster = b.from, index = b.score,
+--           }
+--       end
+--       return true
+--   end
+--
+-- If a plain status trigger is easier, GetMissingBuffCount() allocates
+-- nothing and is safe to check often:
+--
+--   function()
+--       local api = GearScout and GearScout.API
+--       return api ~= nil and api.GetMissingBuffCount() > 0
+--   end
+--
+-- And to only rebuild a display when the answer has really moved, watch
+-- GetBuffStamp(). It is one number and it only ever counts up:
+--
+--   function()
+--       local api = GearScout and GearScout.API
+--       return api and api.GetBuffStamp() or 0
+--   end
 -- ---------------------------------------------------------------------------
 
-function API.GetMissingBuffCount()
-    if not ns.GetMissingGroupBuffs then return 0 end
-    return #ns.GetMissingGroupBuffs()
+local function CopyBuff(b)
+    return {
+        key         = b.key,
+        label       = b.label,
+        spellID     = b.spellID,
+        icon        = b.icon,
+        why         = b.why,
+        from        = b.from,
+        fromClass   = b.fromClass,
+        classFile   = b.classFile,
+        scope       = b.scope,
+        slot        = b.slot,
+        talent      = b.talent or false,
+        situational = b.situational or false,
+        score       = b.score or 0,
+        isSelf      = b.isSelf or false,
+    }
 end
 
--- Array of { label, why, from }
-function API.GetMissingBuffs()
+local function CopyBuffList(src)
     local out = {}
-    if not ns.GetMissingGroupBuffs then return out end
-    for i, b in ipairs(ns.GetMissingGroupBuffs()) do
-        out[i] = { label = b.label, why = b.why, from = b.from }
-    end
+    if not src then return out end
+    for i = 1, #src do out[i] = CopyBuff(src[i]) end
     return out
+end
+
+-- Cheapest call in this section. Returns a number and allocates nothing.
+function API.GetMissingBuffCount()
+    if not ns.GetMissingGroupBuffs then return 0 end
+    return #(ns.GetMissingGroupBuffs())
+end
+
+-- A number that changes only when the set of missing buffs changes. Poll this
+-- instead of rebuilding a display, or trigger on GEARSCOUT_BUFFS_UPDATED and
+-- do not poll at all.
+function API.GetBuffStamp()
+    if not ns.GetBuffStamp then return 0 end
+    return ns.GetBuffStamp()
+end
+
+-- Array of entries, shape documented above. Most wanted first.
+function API.GetMissingBuffs()
+    if not ns.GetMissingGroupBuffs then return {} end
+    local missing = ns.GetMissingGroupBuffs()
+    return CopyBuffList(missing)
+end
+
+-- The talent gated and fight dependent ones, same entry shape.
+function API.GetOptionalBuffs()
+    if not ns.GetMissingGroupBuffs then return {} end
+    local _, optional = ns.GetMissingGroupBuffs()
+    return CopyBuffList(optional)
+end
+
+-- Everything in one table, shape documented above.
+function API.GetBuffReport()
+    local p = ns.activeProfile
+    local report = {
+        inGroup  = (IsInGroup() or IsInRaid()) and true or false,
+        stamp    = API.GetBuffStamp(),
+        spec     = p and p.name or nil,
+        role     = p and p.role or nil,
+        count    = 0,
+        missing  = {},
+        optional = {},
+    }
+    if not ns.GetMissingGroupBuffs then return report end
+
+    local missing, optional = ns.GetMissingGroupBuffs()
+    report.missing  = CopyBuffList(missing)
+    report.optional = CopyBuffList(optional)
+    report.count    = #report.missing
+    return report
 end
 
 -- ---------------------------------------------------------------------------
@@ -177,6 +321,12 @@ end
 --
 --   GEARSCOUT_GEAR_UPDATED       fires after a gear scan is analysed
 --   GEARSCOUT_FIGHT_RECORDED     fires when a fight report is finished
+--   GEARSCOUT_BUFFS_UPDATED      fires when the set of missing group buffs
+--                                changes, and only then. Gaining a buff,
+--                                losing one, somebody joining or leaving, and
+--                                respeccing all reach it. It is quiet the
+--                                rest of the time, including through a whole
+--                                fight where nothing about your buffs moved.
 --
 -- Trigger on the custom event of the same name in WeakAuras.
 -- ---------------------------------------------------------------------------
@@ -189,5 +339,11 @@ end)
 ns:Sub("ROTATION_UPDATED", function()
     if _G.WeakAuras and _G.WeakAuras.ScanEvents then
         _G.WeakAuras.ScanEvents("GEARSCOUT_FIGHT_RECORDED", true)
+    end
+end)
+
+ns:Sub("BUFFS_UPDATED", function()
+    if _G.WeakAuras and _G.WeakAuras.ScanEvents then
+        _G.WeakAuras.ScanEvents("GEARSCOUT_BUFFS_UPDATED", true)
     end
 end)

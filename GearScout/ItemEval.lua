@@ -11,6 +11,7 @@
 --   ns.CompareToEquipped(itemLinkOrId)    delta plus a plain English explanation
 --   ns.GetCapStatus(specKey)              list of caps this character meets or misses
 --   ns.ExplainItem(itemLinkOrId, specKey) full per stat breakdown, see below
+--   ns.ScoreItemAllSpecs(itemLinkOrId, classFile)  one score per spec of a class
 --
 -- specKey is optional everywhere it appears. Pass nil to mean "the character
 -- currently logged in, in their current talent spec". Pass a table shaped
@@ -50,10 +51,31 @@
 --      "plus 7 spell damage does nothing for a hunter" is worth more to a
 --      hunter deciding whether to roll than the total ever is on its own.
 --
+-- ---------------------------------------------------------------------------
+-- two different confidences, never mixed
+--
+-- "How good is GearScout's data for this spec" and "is this even the spec
+-- you are playing" are separate questions with separate answers, and folding
+-- them into one number would hide the more dangerous of the two. Researched,
+-- audited, high confidence weights applied to the wrong talent tree are
+-- still the wrong advice.
+--   result.confidence      how good the researched data for that spec is,
+--                          straight from Data/StatWeights.lua
+--   result.specConfidence  how sure ns.GetSpecInfo is that this is the spec
+--                          being played: none, low, medium, high, or
+--                          explicit when the caller named the spec itself
+-- When specConfidence is none or low, result.specUncertain is true, the item
+-- is still scored with the deepest talent tree, result.specNote says in
+-- plain words why that is a guess, and result.alternatives carries the same
+-- item scored for every other spec of the class so a caller can show all of
+-- them rather than commit to one. A level 27 hunter with points spread over
+-- three trees gets three honest numbers instead of one confident wrong one.
+--
 -- ExplainItem returns one table (or nil plus a reason when the item itself
 -- cannot be identified):
 --   itemID, link, name
---   spec        { class, tab, name }, confidence          the spec used
+--   spec        { class, tab, name, confidence, role }    the spec used
+--   specConfidence, specUncertain, specNote, alternatives see above
 --   noData      true when this spec has no researched weights at all
 --   blocking    array of { kind, text }, tier 1, empty when nothing blocks
 --   armorPenalty  { fraction, note } or nil, tier 2
@@ -179,22 +201,91 @@ end
 -- Turns whatever the caller passed as specKey into a classFile and a tab
 -- index. Falls back to the character currently logged in and their current
 -- talent spec when nothing usable was passed in.
+--
+-- The third return is how sure GearScout is that the tab really is the spec
+-- being played, straight from ns.GetSpecInfo: "none", "low", "medium" or
+-- "high", or "explicit" when the caller named the spec itself and there is
+-- nothing to be unsure about. The fourth is the role, which is settled
+-- earlier than the tree name and is often the only part worth acting on for
+-- a character who has barely spent a point. Nothing here refuses to score on
+-- a low confidence; it scores with the deepest tree and says so, which is
+-- more useful than silence and more honest than a confident wrong answer.
 local function ResolveSpecKey(specKey)
     if type(specKey) == "table" and specKey.class then
-        return specKey.class, tonumber(specKey.tab) or 1
+        return specKey.class, tonumber(specKey.tab) or 1, "explicit", nil
     end
     if type(specKey) == "string" then
         local classFile, tab = specKey:match("^(%u+):(%d+)$")
-        if classFile then return classFile, tonumber(tab) end
+        if classFile then return classFile, tonumber(tab), "explicit", nil end
     end
 
     local classFile = ns.playerClass or select(2, UnitClass("player"))
-    local tab = 1
-    if ns.GetSpec then
+    local tab, confidence, role = 1, "none", nil
+    if ns.GetSpecInfo then
+        local info = ns.GetSpecInfo()
+        tab        = info.tab or 1
+        confidence = info.confidence or "none"
+        role       = info.role
+    elseif ns.GetSpec then
         local _, bestIdx = ns.GetSpec()
         tab = bestIdx or 1
     end
-    return classFile, tab
+    return classFile, tab, confidence, role
+end
+
+-- Confidences a caller must not commit to one spec on. "explicit" is not in
+-- here on purpose: a caller that named the spec itself is never second
+-- guessed about it.
+local UNCERTAIN_CONFIDENCE = { none = true, low = true }
+
+local function SpecIsUncertain(confidence)
+    return UNCERTAIN_CONFIDENCE[confidence or "none"] == true
+end
+
+-- Plain words for a role, for the one sentence that tells a player what
+-- GearScout is treating them as.
+local ROLE_WORDS = {
+    tank   = "a tank",
+    healer = "a healer",
+    melee  = "a melee damage dealer",
+    ranged = "a ranged damage dealer",
+    caster = "a caster",
+}
+
+-- The sentence a player gets when their talents are too thin to name a spec
+-- from. Says which tree is being used and why that is a guess, and, when the
+-- role is settled even though the tree is not, says the part that is
+-- actually known, because "you are a tank" is worth more to a low level
+-- paladin than any stat total is.
+local function SpecUncertaintyNote(specData, tab, classFile)
+    local info = ns.GetSpecInfo and ns.GetSpecInfo()
+    local total  = (info and info.total) or 0
+    local points = (info and info.points) or 0
+    local specName = (specData and specData.name) or (info and info.name) or format("talent tree %s", tostring(tab))
+
+    local sentence
+    if total <= 0 then
+        sentence = format("You have not spent a talent point yet, so this is scored as %s until you do.", specName)
+    else
+        sentence = format(
+            "Only %d of your %d talent points are in %s, too few to call that your spec, so this is a guide rather than an answer.",
+            points, total, specName)
+    end
+
+    -- The role can be settled while the tree is not, which is the whole
+    -- point of tracking the two apart, and for a hybrid class it is the part
+    -- that actually changes what gear to want.
+    if info and info.role and (info.roleConfidence == "high" or info.roleConfidence == "medium") then
+        local word = ROLE_WORDS[info.role]
+        if word and info.roleFromClass then
+            sentence = sentence .. format(" Every %s build plays the same role, so you are scored as %s either way.",
+                CLASS_LOWER[classFile] or "class", word)
+        elseif word then
+            sentence = sentence .. format(" Your points do say you are %s, and that much is taken as read.", word)
+        end
+    end
+
+    return sentence
 end
 
 -- Plain English reason a spec has no usable data, for messages shown to the
@@ -702,17 +793,23 @@ end
 -- be scored. A third return, confidence, is "high", "medium" or "low" and
 -- mirrors the confidence marker the audit left on that spec's data, so a
 -- caller can decide whether to show the number with a caveat.
+--
+-- A fourth return says how sure GearScout is that this is even the right
+-- spec to be scoring for, which is a different question from how good the
+-- data for that spec is. A researched, high confidence weight table applied
+-- to the wrong tree is still the wrong answer, so the two are kept apart
+-- rather than folded into one number.
 -- ---------------------------------------------------------------------------
 function ns.ScoreItem(itemLinkOrId, specKey, excludeSlotID)
     local link, itemID = NormalizeItem(itemLinkOrId)
     if not itemID then
-        return nil, "That is not a recognisable item.", nil
+        return nil, "That is not a recognisable item.", nil, nil
     end
 
-    local classFile, tab = ResolveSpecKey(specKey)
+    local classFile, tab, specConfidence = ResolveSpecKey(specKey)
     local specData = GetSpecData(classFile, tab)
     if not specData then
-        return nil, NoDataReason(classFile, tab), "low"
+        return nil, NoDataReason(classFile, tab), "low", specConfidence
     end
 
     local specCacheKey = SpecCacheKey(classFile, tab)
@@ -753,7 +850,47 @@ function ns.ScoreItem(itemLinkOrId, specKey, excludeSlotID)
         score = score * (1 - armorFraction)
     end
 
-    return score, nil, specData.confidence
+    return score, nil, specData.confidence, specConfidence
+end
+
+-- ---------------------------------------------------------------------------
+-- ns.ScoreItemAllSpecs(itemLinkOrId, classFile, excludeSlotID)
+-- Every spec of a class scored against the same item, in tab order, for the
+-- case ns.GetSpecInfo reports too few talent points to name one. Showing
+-- three honest numbers beats showing one confident wrong one.
+--
+-- Returns an array of { tab, name, score, confidence }, or nil plus a plain
+-- English reason when the class has no researched weights at all. Specs with
+-- no researched data are left out rather than listed with a zero, and score
+-- is nil for a spec whose stats could not be read yet.
+-- ---------------------------------------------------------------------------
+function ns.ScoreItemAllSpecs(itemLinkOrId, classFile, excludeSlotID)
+    local link, itemID = NormalizeItem(itemLinkOrId)
+    if not itemID then
+        return nil, "That is not a recognisable item."
+    end
+
+    classFile = classFile or ns.playerClass or select(2, UnitClass("player"))
+    local classData = ns.STAT_WEIGHTS and ns.STAT_WEIGHTS[classFile]
+    if not classData then
+        local excluded = ns.STAT_WEIGHTS and ns.STAT_WEIGHTS.EXCLUDED and ns.STAT_WEIGHTS.EXCLUDED[classFile]
+        return nil, excluded or format("GearScout has no researched stat weights for %s yet.", tostring(classFile))
+    end
+
+    local out = {}
+    for tab = 1, 3 do
+        local specData = classData[tab]
+        if specData then
+            local score = ns.ScoreItem(link, { class = classFile, tab = tab }, excludeSlotID)
+            out[#out + 1] = {
+                tab = tab,
+                name = specData.name,
+                score = score,
+                confidence = specData.confidence,
+            }
+        end
+    end
+    return out
 end
 
 -- ---------------------------------------------------------------------------
@@ -848,12 +985,15 @@ end
 -- number, because the research only gave a rule of thumb rather than a hard
 -- number, come back with measurable = false and no met value; the
 -- explanation still tells the player what to look at.
+--
+-- The third return is how sure GearScout is that this is the right spec at
+-- all, separate from the second return's confidence in the spec's data.
 -- ---------------------------------------------------------------------------
 function ns.GetCapStatus(specKey)
-    local classFile, tab = ResolveSpecKey(specKey)
+    local classFile, tab, specConfidence = ResolveSpecKey(specKey)
     local specData = GetSpecData(classFile, tab)
     if not specData then
-        return nil, NoDataReason(classFile, tab)
+        return nil, NoDataReason(classFile, tab), specConfidence
     end
 
     local results = {}
@@ -876,7 +1016,7 @@ function ns.GetCapStatus(specKey)
         end
         results[#results + 1] = row
     end
-    return results, specData.confidence
+    return results, specData.confidence, specConfidence
 end
 
 -- ---------------------------------------------------------------------------
@@ -892,7 +1032,7 @@ function ns.CompareToEquipped(itemLinkOrId)
         return nil, "That is not a recognisable item, so GearScout cannot compare it to anything."
     end
 
-    local classFile, tab = ResolveSpecKey(nil)
+    local classFile, tab, specConfidence = ResolveSpecKey(nil)
     local level = CurrentLevel()
     local meta = ns.GetItemMeta and ns.GetItemMeta(itemID)
 
@@ -956,6 +1096,14 @@ function ns.CompareToEquipped(itemLinkOrId)
         pieces[#pieces + 1] = armorNote
     end
 
+    -- Which spec this was scored for, said out loud whenever the talents are
+    -- too thin to be sure of it. Said before the data confidence line below,
+    -- because scoring the wrong spec well is a bigger problem than scoring
+    -- the right spec from thin data.
+    if SpecIsUncertain(specConfidence) then
+        pieces[#pieces + 1] = SpecUncertaintyNote(specData, tab, classFile)
+    end
+
     if specData.confidence and specData.confidence ~= "high" then
         pieces[#pieces + 1] = format(
             "GearScout's data for %s is marked %s confidence, so treat this comparison as a rough guide, not a final answer.",
@@ -985,7 +1133,7 @@ function ns.ExplainItem(itemLinkOrId, specKey)
         return nil, "That is not a recognisable item."
     end
 
-    local classFile, tab = ResolveSpecKey(specKey)
+    local classFile, tab, specConfidence, specRole = ResolveSpecKey(specKey)
     local level = CurrentLevel()
     local meta = ns.GetItemMeta and ns.GetItemMeta(itemID)
 
@@ -993,7 +1141,12 @@ function ns.ExplainItem(itemLinkOrId, specKey)
         itemID = itemID,
         link = link,
         name = meta and meta.name,
-        spec = { class = classFile, tab = tab },
+        -- spec.confidence is how sure GearScout is that this is the spec
+        -- being played. result.confidence further down is a different thing
+        -- entirely: how good the researched data for that spec is.
+        spec = { class = classFile, tab = tab, confidence = specConfidence, role = specRole },
+        specConfidence = specConfidence,
+        specUncertain = SpecIsUncertain(specConfidence),
     }
 
     -- Tier 1. Checked before spec data even matters, because whether an item
@@ -1077,6 +1230,50 @@ function ns.ExplainItem(itemLinkOrId, specKey)
     elseif not result.verdict then
         result.verdict = "no slot"
         result.verdictText = "GearScout does not know which equipment slot that item goes in yet, so it cannot be compared to what you have equipped."
+    end
+
+    -- Too few talent points to name a spec from. The item is still scored,
+    -- with the deepest tree, because a number with a caveat is more use than
+    -- no number, but the caveat travels with it and every other tree of the
+    -- class is scored alongside so a caller can show all of them instead of
+    -- presenting one guess as the answer.
+    --
+    -- None of this runs for a character who has actually committed to a
+    -- tree, and a blocking problem is the whole answer on its own, so
+    -- neither the extra scoring nor the extra sentence happens there.
+    if result.specUncertain and result.verdict ~= "blocked" then
+        result.specNote = SpecUncertaintyNote(specData, tab, classFile)
+
+        local classData = ns.STAT_WEIGHTS and ns.STAT_WEIGHTS[classFile]
+        if classData then
+            local alts = {}
+            for otherTab = 1, 3 do
+                local other = classData[otherTab]
+                if other and otherTab ~= tab then
+                    local score = ns.ScoreItem(link, { class = classFile, tab = otherTab }, slotID)
+                    local entry = { tab = otherTab, name = other.name, total = score, confidence = other.confidence }
+                    if score and slotID then
+                        local equippedTotal = 0
+                        if equippedLink then
+                            equippedTotal = ns.ScoreItem(equippedLink, { class = classFile, tab = otherTab }, slotID) or 0
+                        end
+                        entry.equippedTotal = equippedTotal
+                        entry.delta = score - equippedTotal
+                        entry.verdict, entry.verdictText = VerdictSentence(entry.delta, equippedLink, equippedTotal)
+                    end
+                    alts[#alts + 1] = entry
+                end
+            end
+            if #alts > 0 then result.alternatives = alts end
+        end
+
+        -- Folded into the verdict line as well, because a caller with room
+        -- for one line only, a tooltip, would otherwise show a spec specific
+        -- verdict with no hint that the spec was a guess. A caller showing
+        -- specNote separately should skip it here to avoid saying it twice.
+        if result.verdictText then
+            result.verdictText = result.verdictText .. " " .. result.specNote
+        end
     end
 
     if specData.confidence and specData.confidence ~= "high" and result.verdict ~= "blocked" then

@@ -234,50 +234,85 @@ local SLOT_ART = {
 }
 ns.SLOT_ART = SLOT_ART
 
+-- Row geometry, in one place, because MeasureIssueRow below has to reproduce
+-- the exact same insets and gaps. Text is laid out in two columns, not one:
+-- the title clears the icon, and the two body lines start from the icon's own
+-- left edge. The icon only ever occupies the first line, so indenting the
+-- sentences underneath it threw away 22px of wrapping width on every one of
+-- them, which is what made the list so tall.
+local ROW_PAD_TOP    = 5    -- row top to the first line of text
+local ROW_PAD_BOTTOM = 5    -- last line of text to the separator hairline
+local ROW_GAP_DETAIL = 1    -- title to detail: they read as one block
+local ROW_GAP_FIX    = 3    -- detail to fix: the action is set slightly apart
+local ROW_TEXT_LEFT  = 8    -- body text and the icon share this left edge
+local ROW_TEXT_RIGHT = 8
+local ROW_ICON       = 16
+local ROW_TITLE_LEFT = ROW_TEXT_LEFT + ROW_ICON + 6   -- title clears the icon
+local ROW_BODY_DX    = ROW_TEXT_LEFT - ROW_TITLE_LEFT -- body hangs left of it
+-- Only stops a single line issue from looking like an accident. Nothing is
+-- ever clipped to it, see MeasureIssueRow.
+local ROW_MIN_HEIGHT = 44
+
 local function CreateIssueRow(list)
     local row = CreateFrame("Button", nil, list)
 
-    row.hl = UI.Tex(row, "BACKGROUND", { 1, 1, 1, 0.03 })
-    row.hl:SetPoint("TOPLEFT", 0, -1)
-    row.hl:SetPoint("BOTTOMRIGHT", 0, 3)
+    -- Same hover fill the slot rows use, so the two lists feel like one UI.
+    -- Stops 1px short of the bottom to leave the separator visible.
+    row.hl = UI.Tex(row, "BACKGROUND", T.hover)
+    row.hl:SetPoint("TOPLEFT", 0, 0)
+    row.hl:SetPoint("BOTTOMRIGHT", 0, 1)
     row.hl:Hide()
 
     row.stripe = UI.Tex(row, "ARTWORK", T.bad)
     row.stripe:SetPoint("TOPLEFT", 0, -2)
-    row.stripe:SetPoint("BOTTOMLEFT", 0, 4)
-    row.stripe:SetWidth(2)
+    row.stripe:SetPoint("BOTTOMLEFT", 0, 3)
+    row.stripe:SetWidth(3)
+
+    -- One hairline per row instead of a band of empty space. Rows can then sit
+    -- close together without running into each other, which is what lets the
+    -- padding above be this tight and still read cleanly.
+    row.sep = UI.Tex(row, "ARTWORK", T.line)
+    row.sep:SetPoint("BOTTOMLEFT", ROW_TEXT_LEFT, 0)
+    row.sep:SetPoint("BOTTOMRIGHT", -ROW_TEXT_RIGHT, 0)
+    row.sep:SetHeight(1)
 
     -- Created once here, only ever re-textured in UpdateIssueRow. This list is
     -- pooled and scrolled, so a texture created per update would leak one per
     -- scroll event.
     row.icon = row:CreateTexture(nil, "ARTWORK")
-    row.icon:SetSize(18, 18)
-    row.icon:SetPoint("TOPLEFT", 6, -5)
+    row.icon:SetSize(ROW_ICON, ROW_ICON)
+    row.icon:SetPoint("TOPLEFT", ROW_TEXT_LEFT, -ROW_PAD_TOP)
     row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
-    -- Text starts 24px in (18px icon plus the same 6px gap CreateSlotRow uses)
-    -- instead of the old 12px, whether or not this particular row ends up
-    -- showing an icon, so rows never jump around as the list scrolls.
+    -- The title always starts past the icon column whether or not this
+    -- particular row ends up showing an icon, so rows never jump around as the
+    -- list scrolls.
+    --
+    -- TOPLEFT plus TOPRIGHT, never a bare RIGHT: two anchors on the top edge
+    -- fix the width and leave the height intrinsic, which is what lets a font
+    -- string grow to however many lines its text wraps to.
     row.title = UI.Font(row, 12, T.text, nil, "LEFT")
-    row.title:SetPoint("TOPLEFT", 30, -6)
-    row.title:SetPoint("RIGHT", -10, 0)
+    row.title:SetPoint("TOPLEFT", ROW_TITLE_LEFT, -ROW_PAD_TOP)
+    row.title:SetPoint("TOPRIGHT", -ROW_TEXT_RIGHT, -ROW_PAD_TOP)
+    row.title:SetJustifyV("TOP")
 
-    -- what is actually true, in numbers.
+    -- what is actually true, in numbers. Dim on purpose: it is the background
+    -- to the problem, not the thing to act on.
     --
     -- Each line hangs off the bottom of the one above it and carries no fixed
-    -- height, so a font string sizes itself to however many lines its text
-    -- actually wraps to. The previous version pinned these to fixed offsets
-    -- with fixed heights, which silently truncated any detail longer than one
-    -- line: the bag upgrade summary was being cut off mid sentence.
+    -- height. The previous version pinned these to fixed offsets with fixed
+    -- heights, which silently truncated any detail longer than one line: the
+    -- bag upgrade summary was being cut off mid sentence.
     row.detail = UI.Font(row, 11, T.dim, nil, "LEFT")
-    row.detail:SetPoint("TOPLEFT", row.title, "BOTTOMLEFT", 0, -3)
-    row.detail:SetPoint("RIGHT", -10, 0)
+    row.detail:SetPoint("TOPLEFT",  row.title, "BOTTOMLEFT",  ROW_BODY_DX, -ROW_GAP_DETAIL)
+    row.detail:SetPoint("TOPRIGHT", row.title, "BOTTOMRIGHT", 0,           -ROW_GAP_DETAIL)
     row.detail:SetJustifyV("TOP")
 
-    -- what to do about it.
+    -- what to do about it. Accent coloured and set a little further down, so
+    -- the eye lands on the action rather than on the explanation above it.
     row.fix = UI.Font(row, 11, T.accent, nil, "LEFT")
-    row.fix:SetPoint("TOPLEFT", row.detail, "BOTTOMLEFT", 0, -3)
-    row.fix:SetPoint("RIGHT", -10, 0)
+    row.fix:SetPoint("TOPLEFT",  row.detail, "BOTTOMLEFT",  0, -ROW_GAP_FIX)
+    row.fix:SetPoint("TOPRIGHT", row.detail, "BOTTOMRIGHT", 0, -ROW_GAP_FIX)
     row.fix:SetJustifyV("TOP")
 
     -- The row already prints the title, the facts and the fix, so the tooltip
@@ -297,22 +332,27 @@ local function CreateIssueRow(list)
     return row
 end
 
--- Text starts 30px in and stops 10px short of the right edge, so that is what
--- the wrapping width has to be measured against. Kept next to the row builder
+-- Two wrapping widths, because the row draws in two columns: the title is
+-- inset past the icon, the detail and the fix run the full width of the row.
+-- Both are derived from the same constants CreateIssueRow anchors against,
 -- because the two have to agree or rows will be sized for a width they are not
 -- actually drawn at.
-local ISSUE_TEXT_INSET = 30 + 10
+local ISSUE_TITLE_INSET = ROW_TITLE_LEFT + ROW_TEXT_RIGHT
+local ISSUE_BODY_INSET  = ROW_TEXT_LEFT + ROW_TEXT_RIGHT
 
 local function MeasureIssueRow(issue, width)
-    local w = math.max(1, (width or 0) - ISSUE_TEXT_INSET)
-    local h = 6 + UI.MeasureText(12, w, issue.title or "")
-    h = h + 3 + UI.MeasureText(11, w, issue.detail or "")
+    width = width or 0
+    local tw = math.max(1, width - ISSUE_TITLE_INSET)
+    local bw = math.max(1, width - ISSUE_BODY_INSET)
+    local h = ROW_PAD_TOP + UI.MeasureText(12, tw, issue.title or "")
+    h = h + ROW_GAP_DETAIL + UI.MeasureText(11, bw, issue.detail or "")
     if issue.fix and issue.fix ~= "" then
-        h = h + 3 + UI.MeasureText(11, w, issue.fix)
+        h = h + ROW_GAP_FIX + UI.MeasureText(11, bw, issue.fix)
     end
-    -- Floor at the old fixed height so a short row still looks deliberate
-    -- rather than cramped, plus bottom padding.
-    return math.max(72, h + 8)
+    -- The floor is a floor, never a ceiling: the measured height wins whenever
+    -- it is larger, so a long issue still gets every line it needs. The extra
+    -- pixel is the separator hairline at the bottom of the row.
+    return math.max(ROW_MIN_HEIGHT, h + ROW_PAD_BOTTOM + 1)
 end
 
 local function UpdateIssueRow(row, issue)
@@ -370,22 +410,30 @@ local function BuildGearPage(parent)
     right:SetPoint("TOPLEFT", left, "TOPRIGHT", 8, 0)
     right:SetPoint("BOTTOMRIGHT", -12, 8)
 
+    -- 6 is the list's own left inset below, so this header sits exactly above
+    -- the column the row text starts in rather than near it.
     local rh = UI.Font(right, 10, T.dim, nil, "LEFT")
-    rh:SetPoint("TOPLEFT", 12, -10)
+    rh:SetPoint("TOPLEFT", 6 + ROW_TEXT_LEFT, -9)
     rh:SetText("WHAT TO FIX, HIGHEST IMPACT FIRST")
 
     issueCount = UI.Font(right, 10, T.dim, nil, "RIGHT")
-    issueCount:SetPoint("TOPRIGHT", -12, -10)
+    issueCount:SetPoint("TOPRIGHT", -12, -9)
 
     local sep = UI.Divider(right)
-    sep:SetPoint("TOPLEFT", 10, -26)
-    sep:SetPoint("TOPRIGHT", -10, -26)
+    sep:SetPoint("TOPLEFT", 10, -24)
+    sep:SetPoint("TOPRIGHT", -10, -24)
 
-    -- 72 replaces the old fixed 84. The saved padding goes to the fix line
-    -- below, which is the one that was getting cut off mid sentence.
-    issueList = UI.List(right, 72, CreateIssueRow, UpdateIssueRow, MeasureIssueRow)
-    issueList:SetPoint("TOPLEFT", 8, -32)
-    issueList:SetPoint("BOTTOMRIGHT", -6, 8)
+    -- The height passed here is only the MINIMUM, used to size the row pool.
+    -- It has to be the same floor MeasureIssueRow returns, or the pool comes up
+    -- short of the number of rows that actually fit on screen. Every row's real
+    -- height still comes from MeasureIssueRow, which is what keeps long advice
+    -- fully visible instead of clipped.
+    issueList = UI.List(right, ROW_MIN_HEIGHT, CreateIssueRow, UpdateIssueRow, MeasureIssueRow)
+    -- Tight against the panel edges. Every pixel here becomes wrapping width for
+    -- the sentences inside the rows, which is the cheapest way to make the list
+    -- shorter without shrinking any text.
+    issueList:SetPoint("TOPLEFT", 6, -28)
+    issueList:SetPoint("BOTTOMRIGHT", -4, 6)
 
     issueEmpty = UI.Font(right, 13, T.good)
     issueEmpty:SetPoint("CENTER", 0, 10)

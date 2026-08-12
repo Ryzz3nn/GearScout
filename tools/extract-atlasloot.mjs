@@ -194,6 +194,23 @@ function findMatchingBrace(text, openIdx) {
     return -1;
 }
 
+// Removes any `--` line comments sitting in front of an entry. AtlasLoot
+// labels sections inside an items table with bare comments, e.g.
+// `-- Graveyard` immediately before the first boss of Scarlet Monastery's
+// graveyard wing. A comment carries no comma of its own, so it arrives glued
+// to the front of the entry that follows it, and that entry then no longer
+// starts with `{` and gets discarded as if it were a bare table reference.
+// That silently cost eleven bosses, one per commented section.
+function stripLeadingComments(text) {
+    let s = text;
+    while (s.startsWith("--")) {
+        const nl = s.indexOf("\n");
+        if (nl === -1) return "";
+        s = s.slice(nl + 1).trim();
+    }
+    return s;
+}
+
 // Splits the inner content of a table constructor into its top level,
 // comma separated entries, ignoring commas nested inside strings, comments
 // or deeper braces.
@@ -239,7 +256,7 @@ function splitTopLevel(text) {
         i++;
     }
     if (start < n) parts.push(text.slice(start, n));
-    return parts.map((s) => s.trim()).filter((s) => s.length > 0);
+    return parts.map((s) => stripLeadingComments(s.trim())).filter((s) => s.length > 0);
 }
 
 function findDataBlocks(fileText) {

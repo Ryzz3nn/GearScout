@@ -46,7 +46,7 @@ it is why a complete item database is not actually needed.
 | Enchants and gems on an item | itemString fields 2 and 3 to 6 | Parsed in `ns.ParseLink`. |
 | Auras on you and your target | `ns.GetAuraName` in `Core.lua` | `C_UnitAuras` with a `UnitAura` fallback. Sampled 4 times a second in combat. |
 | Spell names and known spells | `ns.SpellName`, `ns.SpellKnown` | Handles the modern `C_Spell` and `C_SpellBook` paths. |
-| Talent spec | `ns.GetSpec` in `Core.lua` | Identifies returns by type, because this client uses the retail `GetTalentTabInfo` signature. |
+| Talent spec | `ns.GetSpecInfo` in `Core.lua` | Identifies returns by type, because this client uses the retail `GetTalentTabInfo` signature. Reports a confidence level, and detects role separately from spec on a lower threshold, so a tank is never treated as a damage dealer just because the tree is unclear. |
 | Bags and bank | `Bags.lua` | `C_Container` with a global fallback. |
 | Quest log rewards | `Quests.lua` | `C_QuestLog` with a global fallback. |
 | Group composition | `Buffs.lua` | Class and level of everyone present, to work out which buffs you are missing. |

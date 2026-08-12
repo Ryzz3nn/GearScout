@@ -28,6 +28,7 @@ local UnitGUID, GetZoneText = UnitGUID, GetZoneText
 local C_Map = _G.C_Map
 local strsplit, tonumber, pairs, type, time, wipe, format =
     strsplit, tonumber, pairs, type, time, wipe, format
+local floor = math.floor
 
 -- ---------------------------------------------------------------------------
 -- caps
@@ -248,6 +249,14 @@ end)
 -- (tokens, reputation, etc) are skipped since their price is not a copper
 -- amount. vendorID falls back to 0 when the open target is not a resolvable
 -- creature GUID, so the row is still useful without inventing an identity.
+--
+-- GetMerchantItemInfo returns the price of the whole stack it sells, not the
+-- price of one item, and the stack size is the fourth return. A vendor
+-- selling five of something for 500 copper was being recorded as 500 copper
+-- per item rather than 100, so the stack size is divided out here. Every
+-- consumer of this table treats the number as one item's price in copper
+-- (tools/export-session.mjs writes it to vendor_prices.price_copper), so the
+-- unit price is the only value that belongs in it.
 -- ---------------------------------------------------------------------------
 local function RecordVendorPrice(itemID, vendorID, price)
     SetNested(GearScoutData.vendorPrices, itemID, vendorID or 0,
@@ -260,11 +269,13 @@ ns:On("MERCHANT_SHOW", function()
     local vendorID = CreatureIDFromGUID(UnitGUID("target"))
     local n = GetMerchantNumItems() or 0
     for i = 1, n do
-        local name, _, price, _, _, _, extendedCost = GetMerchantItemInfo(i)
+        local name, _, price, quantity, _, _, extendedCost = GetMerchantItemInfo(i)
         if name and price and price > 0 and not extendedCost then
+            local stack = (type(quantity) == "number" and quantity > 0) and quantity or 1
+            local unitPrice = floor(price / stack)
             local itemID = ExtractItemID(GetMerchantItemLink and GetMerchantItemLink(i))
-            if itemID then
-                RecordVendorPrice(itemID, vendorID, price)
+            if itemID and unitPrice > 0 then
+                RecordVendorPrice(itemID, vendorID, unitPrice)
                 ResolveItemMeta(itemID)
             end
         end

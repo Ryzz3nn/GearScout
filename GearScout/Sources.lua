@@ -150,6 +150,14 @@ function ns.GetDropChance(itemID)
     return bestPct, bestWho
 end
 
+-- The source data names a category rather than a creature for loot that is
+-- not tied to one kill. Both spellings appear in it, so both are recognised
+-- here rather than only the common one.
+local TRASH_SOURCE = {
+    ["Trash"] = true,
+    ["Trash Mobs"] = true,
+}
+
 function ns.DescribeItemSource(itemID)
     local instance, boss = ns.GetItemSource(itemID)
     if not instance then return nil end
@@ -162,10 +170,20 @@ function ns.DescribeItemSource(itemID)
             or format("%.1f percent", chance))
     end
 
-    if boss and boss ~= "" and boss ~= "Trash" then
+    -- "Trash" is the source data's own name for a wing's shared trash loot
+    -- rather than a creature, and "Unknown" is what the extractor writes when
+    -- a source block carries no name at all. Neither is something a player can
+    -- look up in a boss table. Saying only "Drops in Razorfen Kraul" for a
+    -- trash drop reads as a boss drop, which sends people hunting a boss list
+    -- that will never contain the item and makes correct data look wrong.
+    if TRASH_SOURCE[boss] then
+        return format("Drops from trash mobs in %s, not from a boss.%s",
+            instance, odds)
+    end
+    if boss and boss ~= "" and boss ~= "Unknown" then
         return format("Drops from %s in %s.%s", boss, instance, odds)
     end
-    return format("Drops in %s.%s", instance, odds)
+    return format("Drops somewhere in %s.%s", instance, odds)
 end
 
 -- ---------------------------------------------------------------------------

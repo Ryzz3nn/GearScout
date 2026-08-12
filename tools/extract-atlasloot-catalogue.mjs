@@ -167,6 +167,21 @@ function findMatchingBrace(text, openIdx) {
     return -1;
 }
 
+// A `--` line comment carries no comma of its own, so a comment used to label
+// a section inside a table arrives glued to the front of the entry that
+// follows it. Left in place that entry no longer starts with `{` and the
+// callers below throw it away as a bare table reference, losing every item
+// under it. Same fault, same fix as tools/extract-atlasloot.mjs.
+function stripLeadingComments(text) {
+    let s = text;
+    while (s.startsWith("--")) {
+        const nl = s.indexOf("\n");
+        if (nl === -1) return "";
+        s = s.slice(nl + 1).trim();
+    }
+    return s;
+}
+
 function splitTopLevel(text) {
     const parts = [];
     let depth = 0;
@@ -209,7 +224,7 @@ function splitTopLevel(text) {
         i++;
     }
     if (start < n) parts.push(text.slice(start, n));
-    return parts.map((s) => s.trim()).filter((s) => s.length > 0);
+    return parts.map((s) => stripLeadingComments(s.trim())).filter((s) => s.length > 0);
 }
 
 function findDataBlocks(fileText) {
