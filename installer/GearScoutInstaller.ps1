@@ -23,6 +23,21 @@ $ErrorActionPreference = 'Stop'
 
 $Script:AppDir = $PSScriptRoot
 
+# ---------------------------------------------------------------------------
+# Where the launcher the player actually double clicked lives, for the
+# desktop shortcut (see New-DesktopUpdaterShortcut in lib\InstallLogic.ps1).
+# This script only ever knows where it itself is running from, and in the
+# bundled case (dist\GearScoutInstaller.bat) that is a fresh %TEMP% folder
+# about to be deleted, not the .bat the player actually launched. So the
+# batch header passes its own path through as the GSI_SELF environment
+# variable (see tools/build-installer.mjs). When that is not set, this is
+# the unbundled, folder based build, and the launcher is just
+# GearScoutInstaller.cmd sitting next to this script.
+# ---------------------------------------------------------------------------
+$Script:LauncherSelf =
+    if ($env:GSI_SELF) { $env:GSI_SELF }
+    else { Join-Path $PSScriptRoot 'GearScoutInstaller.cmd' }
+
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Xaml, System.Windows.Forms
 
 # ---------------------------------------------------------------------------
@@ -364,6 +379,7 @@ function global:Initialize-MainWindow {
     $browseButton  = $window.FindName('BrowseButton')
     $leadCheckBox  = $window.FindName('LeadCheckBox')
     $leadExplainText = $window.FindName('LeadExplainText')
+    $shortcutCheckBox = $window.FindName('ShortcutCheckBox')
     $sourceText    = $window.FindName('SourceText')
     $summaryText   = $window.FindName('SummaryText')
     $installButton = $window.FindName('InstallButton')
@@ -371,7 +387,7 @@ function global:Initialize-MainWindow {
     $statusText    = $window.FindName('StatusText')
 
     foreach ($needed in 'titleBar','closeButton','installList','browseButton','leadCheckBox','leadExplainText',
-                         'sourceText','summaryText','installButton','rescanButton','statusText') {
+                         'shortcutCheckBox','sourceText','summaryText','installButton','rescanButton','statusText') {
         if (-not (Get-Variable -Name $needed -ValueOnly)) {
             throw "The installer window is missing an expected control: $needed"
         }
@@ -480,6 +496,15 @@ function global:Initialize-MainWindow {
                 $lines.Add($r.Message)
                 if ($r.Status -eq 'error') { $hasError = $true }
                 if ($r.Status -eq 'skipped_linked') { $hasLinked = $true }
+            }
+
+            # Only ever after a successful install, never on launch, and
+            # only if the player actually asked for it. A shortcut problem
+            # is reported here but never turns this red: the addon being
+            # installed is what matters, see New-DesktopUpdaterShortcut.
+            if (-not $hasError -and $shortcutCheckBox.IsChecked) {
+                $shortcutResult = New-DesktopUpdaterShortcut -LauncherPath $Script:LauncherSelf -InstallerSourceDir $Script:AppDir
+                $lines.Add($shortcutResult.Message)
             }
 
             $statusText.Text = [string]::Join("`n", $lines.ToArray())

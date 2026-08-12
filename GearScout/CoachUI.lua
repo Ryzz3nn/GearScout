@@ -9,7 +9,7 @@ local UI, T, SEV = ns.UI, ns.T, ns.SEVERITY
 local format, ipairs, unpack = string.format, ipairs, unpack
 
 local win, pages, tabBar
-local gearPage, rotationPage, settingsPage
+local gearPage, upgradesPage, rotationPage, settingsPage
 local scoreGrade, scoreValue, scoreBar, scoreSub
 local chips = {}
 local slotList, issueList, issueEmpty, issueCount
@@ -330,6 +330,24 @@ end
 -- Rotation.lua fills this in. Until it loads the tab explains itself rather
 -- than showing an empty box.
 -- ---------------------------------------------------------------------------
+-- Upgrades.lua owns its own page, the same way Rotation.lua does, so this is
+-- only a holder plus an honest message if that file failed to load.
+local function BuildUpgradesPage(parent)
+    local page = CreateFrame("Frame", nil, parent)
+    page:SetAllPoints()
+
+    if ns.BuildUpgradesPage then
+        ns.BuildUpgradesPage(page)
+        return page
+    end
+
+    local msg = UI.Font(page, 12, T.dim, nil, "CENTER")
+    msg:SetPoint("CENTER")
+    msg:SetWidth(420)
+    msg:SetText("The upgrade finder is not loaded in this build.")
+    return page
+end
+
 local function BuildRotationPage(parent)
     local page = CreateFrame("Frame", nil, parent)
     page:SetAllPoints()
@@ -550,7 +568,9 @@ local function Build()
 
     -- TabBar selects its first tab while it is being constructed, which happens
     -- before the pages below exist. The guard keeps that first call harmless.
-    tabBar = UI.TabBar(win.content, { "Gear", "Rotation", "Settings" }, function(i)
+    -- Upgrades sits next to Gear on purpose: the gear tab tells you what is
+    -- wrong, and the natural next question is what to do about it.
+    tabBar = UI.TabBar(win.content, { "Gear", "Upgrades", "Rotation", "Settings" }, function(i)
         if not pages then return end
         for j, p in ipairs(pages) do p:SetShown(i == j) end
     end)
@@ -566,9 +586,10 @@ local function Build()
     body:SetPoint("BOTTOMRIGHT", 0, 34)
 
     gearPage     = BuildGearPage(body)
+    upgradesPage = BuildUpgradesPage(body)
     rotationPage = BuildRotationPage(body)
     settingsPage = BuildSettingsPage(body)
-    pages = { gearPage, rotationPage, settingsPage }
+    pages = { gearPage, upgradesPage, rotationPage, settingsPage }
     tabBar:Select(1)
 
     -- footer

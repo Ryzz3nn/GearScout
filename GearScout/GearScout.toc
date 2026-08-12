@@ -31,6 +31,7 @@ Bags.lua
 Gaps.lua
 Quests.lua
 Deaths.lua
+Upgrades.lua
 
 DetailsBridge.lua
 Rotation.lua

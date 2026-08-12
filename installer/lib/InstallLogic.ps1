@@ -346,3 +346,102 @@ function global:Install-GearScoutPackage {
     Remove-StagingFolder -StagingRoot $package.StagingRoot
     return $results
 }
+
+# ---------------------------------------------------------------------------
+# Puts a "GearScout Updater" shortcut on the desktop so the player has a way
+# to run this again later and pick up the next version. Only ever called
+# after a successful install, never on launch.
+#
+# The shortcut cannot point at the script that is running right now: in the
+# bundled case (dist\GearScoutInstaller.bat) that is a fresh %TEMP% folder
+# the batch file deletes the moment the window closes, and Downloads is not
+# safe either since people empty it. So this copies the launcher to a
+# stable per user location first (LOCALAPPDATA is per user, not silently
+# emptied, and needs no elevation) and points the shortcut at that copy.
+#
+#   LauncherPath        Where the running app was actually launched from:
+#                        the .bat's own path in the bundled case (passed
+#                        through as the GSI_SELF environment variable, see
+#                        the batch header in tools/build-installer.mjs,
+#                        since the script only ever sees its temp copy of
+#                        itself), or the .cmd sitting next to this script in
+#                        the unbundled, folder based case.
+#   InstallerSourceDir   Unbundled case only. The .cmd on its own is not
+#                        enough, it depends on the .ps1/.xaml/lib files next
+#                        to it, so the whole folder has to be copied along
+#                        with it.
+#   PersistRoot          Override for the per user folder the copy lands
+#                        in. Defaults to LOCALAPPDATA\GearScout. Exists so
+#                        this can be exercised against a scratch folder
+#                        instead of a real user profile.
+#   DesktopPath          Override for where the .lnk is written. Defaults
+#                        to the real, possibly OneDrive redirected, desktop.
+#
+# Never throws: the addon is already installed by the time this runs, and a
+# shortcut problem must not read as an install problem. Returns a result
+# object the caller puts on screen instead.
+# ---------------------------------------------------------------------------
+function global:New-DesktopUpdaterShortcut {
+    param(
+        [Parameter(Mandatory)][string]$LauncherPath,
+        [string]$InstallerSourceDir,
+        [string]$PersistRoot,
+        [string]$DesktopPath
+    )
+
+    try {
+        if (-not (Test-Path -LiteralPath $LauncherPath -PathType Leaf)) {
+            throw "Could not find '$LauncherPath' to copy."
+        }
+
+        if (-not $PersistRoot) { $PersistRoot = Join-Path $env:LOCALAPPDATA 'GearScout' }
+        if (-not (Test-Path -LiteralPath $PersistRoot)) {
+            New-Item -ItemType Directory -Force -Path $PersistRoot | Out-Null
+        }
+
+        # A single self extracting .bat travels alone. A .cmd is only a thin
+        # launcher for the .ps1/.xaml/lib files beside it, so its whole
+        # folder has to come with it.
+        $isBundled = ([System.IO.Path]::GetExtension($LauncherPath)) -ieq '.bat'
+
+        if ($isBundled) {
+            $persistedLauncher = Join-Path $PersistRoot 'GearScoutInstaller.bat'
+            Copy-Item -LiteralPath $LauncherPath -Destination $persistedLauncher -Force
+        } else {
+            if (-not $InstallerSourceDir -or -not (Test-Path -LiteralPath $InstallerSourceDir -PathType Container)) {
+                throw "Could not find the installer folder to copy ('$InstallerSourceDir')."
+            }
+            $persistedInstallDir = Join-Path $PersistRoot 'installer'
+            New-Item -ItemType Directory -Force -Path $persistedInstallDir | Out-Null
+            # Item by item, not a wildcard Copy-Item, so a folder path with
+            # spaces in it never has to survive wildcard expansion.
+            Get-ChildItem -LiteralPath $InstallerSourceDir -Force | ForEach-Object {
+                Copy-Item -LiteralPath $_.FullName -Destination $persistedInstallDir -Recurse -Force
+            }
+            $persistedLauncher = Join-Path $persistedInstallDir 'GearScoutInstaller.cmd'
+        }
+
+        if (-not $DesktopPath) { $DesktopPath = [Environment]::GetFolderPath('Desktop') }
+        $shortcutPath = Join-Path $DesktopPath 'GearScout Updater.lnk'
+
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $persistedLauncher
+        $shortcut.WorkingDirectory = Split-Path -Parent $persistedLauncher
+        $shortcut.Description = 'Run this any time to install or update GearScout.'
+        $shortcut.Save()
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+
+        return [pscustomobject]@{
+            Status  = 'ok'
+            Message = "Desktop shortcut created: $shortcutPath"
+            Path    = $shortcutPath
+        }
+    } catch {
+        return [pscustomobject]@{
+            Status  = 'error'
+            Message = "Could not create a desktop shortcut, but GearScout itself is installed: $($_.Exception.Message)"
+            Path    = $null
+        }
+    }
+}

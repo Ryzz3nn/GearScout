@@ -218,6 +218,11 @@
                 <TextBlock x:Name="LeadExplainText" Style="{StaticResource DimText}" Margin="24,0,0,18"
                     Text="Officer only. Lets you see other players' gear from your raid lead console. Most people do not need this."/>
 
+                <CheckBox x:Name="ShortcutCheckBox" Style="{StaticResource ObsidianCheckBox}"
+                          Content="Put a shortcut on my desktop" IsChecked="True" Margin="0,0,0,4"/>
+                <TextBlock Style="{StaticResource DimText}" Margin="24,0,0,18"
+                    Text="Adds a 'GearScout Updater' shortcut so it is easy to run this again later and get the next version."/>
+
                 <Border Style="{StaticResource RoundedPanel}" Padding="14" Margin="0,0,0,14">
                     <StackPanel>
                         <TextBlock x:Name="SourceText" Style="{StaticResource DimText}" Text="Checking for an install package..."/>
