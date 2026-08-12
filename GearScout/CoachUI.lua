@@ -262,20 +262,22 @@ local function CreateIssueRow(list)
     row.title:SetPoint("TOPLEFT", 30, -6)
     row.title:SetPoint("RIGHT", -10, 0)
 
-    -- what is actually true, in numbers. Merged rows keep this short, so it
-    -- only needs room for about one line.
+    -- what is actually true, in numbers.
+    --
+    -- Each line hangs off the bottom of the one above it and carries no fixed
+    -- height, so a font string sizes itself to however many lines its text
+    -- actually wraps to. The previous version pinned these to fixed offsets
+    -- with fixed heights, which silently truncated any detail longer than one
+    -- line: the bag upgrade summary was being cut off mid sentence.
     row.detail = UI.Font(row, 11, T.dim, nil, "LEFT")
-    row.detail:SetPoint("TOPLEFT", 30, -19)
+    row.detail:SetPoint("TOPLEFT", row.title, "BOTTOMLEFT", 0, -3)
     row.detail:SetPoint("RIGHT", -10, 0)
-    row.detail:SetHeight(15)
     row.detail:SetJustifyV("TOP")
 
-    -- what to do about it. This is the line most likely to wrap onto a
-    -- second line, so it gets most of the row's remaining height.
+    -- what to do about it.
     row.fix = UI.Font(row, 11, T.accent, nil, "LEFT")
-    row.fix:SetPoint("TOPLEFT", 30, -35)
+    row.fix:SetPoint("TOPLEFT", row.detail, "BOTTOMLEFT", 0, -3)
     row.fix:SetPoint("RIGHT", -10, 0)
-    row.fix:SetHeight(33)
     row.fix:SetJustifyV("TOP")
 
     -- The row already prints the title, the facts and the fix, so the tooltip
@@ -293,6 +295,24 @@ local function CreateIssueRow(list)
         GameTooltip:Hide()
     end)
     return row
+end
+
+-- Text starts 30px in and stops 10px short of the right edge, so that is what
+-- the wrapping width has to be measured against. Kept next to the row builder
+-- because the two have to agree or rows will be sized for a width they are not
+-- actually drawn at.
+local ISSUE_TEXT_INSET = 30 + 10
+
+local function MeasureIssueRow(issue, width)
+    local w = math.max(1, (width or 0) - ISSUE_TEXT_INSET)
+    local h = 6 + UI.MeasureText(12, w, issue.title or "")
+    h = h + 3 + UI.MeasureText(11, w, issue.detail or "")
+    if issue.fix and issue.fix ~= "" then
+        h = h + 3 + UI.MeasureText(11, w, issue.fix)
+    end
+    -- Floor at the old fixed height so a short row still looks deliberate
+    -- rather than cramped, plus bottom padding.
+    return math.max(72, h + 8)
 end
 
 local function UpdateIssueRow(row, issue)
@@ -363,7 +383,7 @@ local function BuildGearPage(parent)
 
     -- 72 replaces the old fixed 84. The saved padding goes to the fix line
     -- below, which is the one that was getting cut off mid sentence.
-    issueList = UI.List(right, 72, CreateIssueRow, UpdateIssueRow)
+    issueList = UI.List(right, 72, CreateIssueRow, UpdateIssueRow, MeasureIssueRow)
     issueList:SetPoint("TOPLEFT", 8, -32)
     issueList:SetPoint("BOTTOMRIGHT", -6, 8)
 

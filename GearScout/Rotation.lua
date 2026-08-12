@@ -864,18 +864,33 @@ local function CreateFindingRow(list)
     row.title:SetPoint("TOPLEFT", 30, -6)
     row.title:SetPoint("RIGHT", -8, 0)
 
+    -- Each line hangs off the one above it with no fixed height, so a font
+    -- string grows to however many lines its text wraps to. Fixed heights here
+    -- truncated any finding whose wording ran long, mid sentence.
     row.detail = UI.Font(row, 11, T.dim, nil, "LEFT")
-    row.detail:SetPoint("TOPLEFT", 30, -23)
+    row.detail:SetPoint("TOPLEFT", row.title, "BOTTOMLEFT", 0, -4)
     row.detail:SetPoint("RIGHT", -8, 0)
-    row.detail:SetHeight(24)
     row.detail:SetJustifyV("TOP")
 
     row.fix = UI.Font(row, 11, T.accent, nil, "LEFT")
-    row.fix:SetPoint("TOPLEFT", 30, -48)
+    row.fix:SetPoint("TOPLEFT", row.detail, "BOTTOMLEFT", 0, -4)
     row.fix:SetPoint("RIGHT", -8, 0)
-    row.fix:SetHeight(24)
     row.fix:SetJustifyV("TOP")
     return row
+end
+
+-- Text starts 30px in and stops 8px short of the right edge. This has to match
+-- CreateFindingRow or rows get sized for a width they are not drawn at.
+local FINDING_TEXT_INSET = 30 + 8
+
+local function MeasureFindingRow(f, width)
+    local w = max(1, (width or 0) - FINDING_TEXT_INSET)
+    local h = 6 + UI.MeasureText(12, w, f.title or "")
+    h = h + 4 + UI.MeasureText(11, w, f.detail or "")
+    if f.fix and f.fix ~= "" then
+        h = h + 4 + UI.MeasureText(11, w, f.fix)
+    end
+    return max(76, h + 8)
 end
 
 local function UpdateFindingRow(row, f)
@@ -1033,7 +1048,7 @@ function ns.BuildRotationPage(page)
     sep2:SetPoint("TOPLEFT", 10, -56)
     sep2:SetPoint("TOPRIGHT", -10, -56)
 
-    findingList = UI.List(right, 76, CreateFindingRow, UpdateFindingRow)
+    findingList = UI.List(right, 76, CreateFindingRow, UpdateFindingRow, MeasureFindingRow)
     findingList:SetPoint("TOPLEFT", 8, -62)
     findingList:SetPoint("BOTTOMRIGHT", -6, 8)
 
