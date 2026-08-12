@@ -45,6 +45,9 @@ local UnitGUID = UnitGUID
 local CombatLogGetCurrentEventInfo, select = CombatLogGetCurrentEventInfo, select
 local floor, min, max, abs = math.floor, math.min, math.max, math.abs
 local format, ipairs, pairs, wipe, type = string.format, ipairs, pairs, wipe, type
+-- Spell names, pet names and target names all come from the client and are
+-- dropped into these sentences untouched. Only GearScout's own words move.
+local L = ns.L
 
 local SEV = ns.SEVERITY
 
@@ -130,9 +133,9 @@ local function RecordMiss(name, missType)
 end
 
 local function CountWord(n)
-    if n == 1 then return "once" end
-    if n == 2 then return "twice" end
-    return n .. " times"
+    if n == 1 then return L["once"] end
+    if n == 2 then return L["twice"] end
+    return format(L["%d times"], n)
 end
 
 -- Turns whatever this spell name has recorded into a plain sentence fragment,
@@ -147,11 +150,11 @@ local function MissPhrase(name)
         local mtype = MISS_ORDER[i]
         local cnt = mc[mtype]
         if cnt and cnt > 0 then
-            parts[#parts + 1] = format("%s %s", MISS_LABEL[mtype] or mtype:lower(), CountWord(cnt))
+            parts[#parts + 1] = format("%s %s", L[MISS_LABEL[mtype]] or mtype:lower(), CountWord(cnt))
         end
     end
     if #parts == 0 then return nil, 0 end
-    return table.concat(parts, " and "), mc.total
+    return table.concat(parts, L[" and "]), mc.total
 end
 
 -- Details labels a melee swing this way in its own spell list, so the same
@@ -439,6 +442,7 @@ local function AnalyzeFight(fightEnd, live)
     -- Resource state. Only mana and focus ever excuse a missed button; rage
     -- and energy legitimately start near empty and say nothing about play.
     local resourceRelevant = startResourceToken == "MANA" or startResourceToken == "FOCUS"
+    -- Both resource words are what a Swedish player says too, so they stay.
     local resourceLabel = (startResourceToken == "FOCUS") and "focus" or "mana"
     local emptyPct = (resourceRelevant and resourceSamples > 0)
         and (resourceEmptySamples / resourceSamples) or 0
@@ -453,48 +457,55 @@ local function AnalyzeFight(fightEnd, live)
                 if windowSamples > 0 then
                     local present = auraPresentAt[entry.name]
                     local pct = present and (CountSince(present, upStart) / windowSamples) or 0
-                    local where = (entry.kind == "buff") and "on you" or "on your target"
+                    local where = (entry.kind == "buff") and L["on you"] or L["on your target"]
                     local attempts = CastsInCombat(entry.name)
                     local missPhrase, missTotal = MissPhrase(entry.name)
 
                     if pct < 0.05 then
                         if attempts == 0 then
                             Add(SEV.CRITICAL,
-                                entry.name .. " was never up",
-                                format("It was not %s at any point after you started attacking (%s).",
+                                format(L["%s was never up"], entry.name),
+                                format(L["It was not %s at any point after you started attacking (%s)."],
                                        where, ns.FmtTime(windowDur)),
-                                "This is a keep it up button. Apply it at the start and refresh it when it drops.",
+                                L["This is a keep it up button. Apply it at the start and refresh it when it drops."],
                                 0, entry.icon)
                         else
                             -- It was cast, it just never stuck. That is a very
                             -- different, much fairer story than "never up".
+                            -- One whole sentence per count, no glued on "s".
+                            local why
+                            if missPhrase then
+                                why = attempts == 1
+                                    and format(L["You cast it once, but it %s, so it had little chance to be up."], missPhrase)
+                                    or format(L["You cast it %d times, but it %s, so it had little chance to be up."], attempts, missPhrase)
+                            else
+                                why = attempts == 1
+                                    and format(L["You cast it once but it was not %s for long."], where)
+                                    or format(L["You cast it %d times but it was not %s for long."], attempts, where)
+                            end
                             Add(SEV.CRITICAL,
-                                entry.name .. " did not stick",
-                                missPhrase
-                                    and format("You cast it %d time%s, but it %s, so it had little chance to be up.",
-                                               attempts, attempts == 1 and "" or "s", missPhrase)
-                                    or format("You cast it %d time%s but it was not %s for long.",
-                                               attempts, attempts == 1 and "" or "s", where),
-                                "Check you are not overwriting it with a weaker application, or refresh it the moment it drops.",
+                                format(L["%s did not stick"], entry.name),
+                                why,
+                                L["Check you are not overwriting it with a weaker application, or refresh it the moment it drops."],
                                 0, entry.icon)
                         end
                     elseif pct < 0.60 then
-                        local detail = format("Present %s for roughly %s of the %s since you started attacking.",
+                        local detail = format(L["Present %s for roughly %s of the %s since you started attacking."],
                                                where, ns.FmtTime(pct * windowDur), ns.FmtTime(windowDur))
                         if missTotal >= MISS_MIN_COUNT and attempts >= MISS_MIN_SAMPLE then
-                            detail = detail .. format(" %d of %d casts were %s, not missed presses.",
+                            detail = detail .. format(L[" %d of %d casts were %s, not missed presses."],
                                                        missTotal, attempts, missPhrase)
                         end
                         Add(SEV.CRITICAL,
-                            format("%s up only %d percent of the time", entry.name, ns.Round(pct * 100)),
+                            format(L["%s up only %d percent of the time"], entry.name, ns.Round(pct * 100)),
                             detail,
-                            "Refresh it as soon as it falls off. Every second it is missing is damage you simply do not do.",
+                            L["Refresh it as soon as it falls off. Every second it is missing is damage you simply do not do."],
                             pct, entry.icon)
                     elseif pct < 0.85 then
                         Add(SEV.WARN,
-                            format("%s up %d percent of the time", entry.name, ns.Round(pct * 100)),
-                            format("Close, but it dropped %s during the fight.", where),
-                            "Refresh a moment earlier and this becomes full uptime.",
+                            format(L["%s up %d percent of the time"], entry.name, ns.Round(pct * 100)),
+                            format(L["Close, but it dropped %s during the fight."], where),
+                            L["Refresh a moment earlier and this becomes full uptime."],
                             pct, entry.icon)
                     end
                 end
@@ -508,21 +519,21 @@ local function AnalyzeFight(fightEnd, live)
                 local missed = expected - n
                 if n == 0 and entry.cd >= 60 and not live then
                     Add(SEV.WARN,
-                        entry.name .. " was never used",
-                        "It was available the whole fight and never pressed.",
-                        "That is free damage or healing sitting unused on your bars.",
+                        format(L["%s was never used"], entry.name),
+                        L["It was available the whole fight and never pressed."],
+                        L["That is free damage or healing sitting unused on your bars."],
                         0, entry.icon)
                 elseif missed >= 2 and pct < 0.70 then
-                    local detail = format("A %d second cooldown across %s allows roughly %d casts.",
+                    local detail = format(L["A %d second cooldown across %s allows roughly %d casts."],
                                            entry.cd, ns.FmtTime(dur), expected)
                     if resourceStarved then
-                        detail = detail .. format(" You also spent about %d percent of the fight without %s to cast.",
+                        detail = detail .. format(L[" You also spent about %d percent of the fight without %s to cast."],
                                                    ns.Round(emptyPct * 100), resourceLabel)
                     end
                     Add(entry.cd <= 30 and SEV.CRITICAL or SEV.WARN,
-                        format("%s used %d of about %d times", entry.name, n, expected),
+                        format(L["%s used %d of about %d times"], entry.name, n, expected),
                         detail,
-                        "Press it again as soon as it comes back up.",
+                        L["Press it again as soon as it comes back up."],
                         pct, entry.icon)
                 end
 
@@ -531,9 +542,9 @@ local function AnalyzeFight(fightEnd, live)
                 -- so a spender that never fired here is not blamed twice.
                 if n == 0 and not resourceStarved then
                     Add(SEV.WARN,
-                        entry.name .. " was never pressed",
-                        "Your spec treats this as a main button and it saw zero casts.",
-                        "Check your action bars and your keybinds.",
+                        format(L["%s was never pressed"], entry.name),
+                        L["Your spec treats this as a main button and it saw zero casts."],
+                        L["Check your action bars and your keybinds."],
                         0, entry.icon)
                 end
             end
@@ -544,16 +555,16 @@ local function AnalyzeFight(fightEnd, live)
     if judge and resourceRelevant then
         if startResourcePct and startResourcePct < RESOURCE_LOW_START then
             Add(SEV.WARN,
-                format("Started the fight at %d percent %s", ns.Round(startResourcePct * 100), resourceLabel),
-                "Starting a fight low on this means running dry partway through it.",
-                "Drink or eat before you pull. A few seconds spent topping up costs far less than the fight does.",
+                format(L["Started the fight at %d percent %s"], ns.Round(startResourcePct * 100), resourceLabel),
+                L["Starting a fight low on this means running dry partway through it."],
+                L["Drink or eat before you pull. A few seconds spent topping up costs far less than the fight does."],
                 startResourcePct)
         end
         if resourceStarved then
             Add(SEV.WARN,
-                format("Out of %s for about %d percent of the fight", resourceLabel, ns.Round(emptyPct * 100)),
-                "The bar was at or near empty for a real share of the fight, time you physically could not cast.",
-                "This is a resource problem, not a rotation problem. A fuller bar at the pull and a lighter rotation once it gets low both help.",
+                format(L["Out of %s for about %d percent of the fight"], resourceLabel, ns.Round(emptyPct * 100)),
+                L["The bar was at or near empty for a real share of the fight, time you physically could not cast."],
+                L["This is a resource problem, not a rotation problem. A fuller bar at the pull and a lighter rotation once it gets low both help."],
                 emptyPct)
         end
     end
@@ -564,23 +575,24 @@ local function AnalyzeFight(fightEnd, live)
     if judge and petUptime and (cls == "HUNTER" or cls == "WARLOCK") then
         if petUptime < 0.10 then
             Add(SEV.CRITICAL,
-                "You fought without a pet",
-                format("Your pet was out for %d percent of the fight.", ns.Round(petUptime * 100)),
+                L["You fought without a pet"],
+                format(L["Your pet was out for %d percent of the fight."], ns.Round(petUptime * 100)),
                 cls == "HUNTER"
-                    and "A hunter pet is a large slice of your damage and it holds things off you. Call it before you pull, and revive it when it dies."
-                    or "Your demon is a large slice of your damage. Summon one before you pull.",
+                    and L["A hunter pet is a large slice of your damage and it holds things off you. Call it before you pull, and revive it when it dies."]
+                    or L["Your demon is a large slice of your damage. Summon one before you pull."],
                 petUptime)
         elseif petUptime < 0.80 then
             Add(SEV.WARN,
-                format("Your pet was only out %d percent of the fight", ns.Round(petUptime * 100)),
-                "It either died partway through or was called late.",
-                "Keep it alive and keep it on the target. Mend Pet while it is tanking.",
+                format(L["Your pet was only out %d percent of the fight"], ns.Round(petUptime * 100)),
+                L["It either died partway through or was called late."],
+                -- Mend Pet is a spell name and stays as the client spells it.
+                L["Keep it alive and keep it on the target. Mend Pet while it is tanking."],
                 petUptime)
         elseif petCasts == 0 and cls == "HUNTER" then
             Add(SEV.WARN,
-                "Your pet never used an ability",
-                "It was out the whole fight but never cast anything of its own.",
-                "Open the pet spellbook and set Claw or Bite to autocast. Free damage that costs you nothing.",
+                L["Your pet never used an ability"],
+                L["It was out the whole fight but never cast anything of its own."],
+                L["Open the pet spellbook and set Claw or Bite to autocast. Free damage that costs you nothing."],
                 0)
         end
     end
@@ -592,9 +604,9 @@ local function AnalyzeFight(fightEnd, live)
         local openDelay = upStart - fightStart
         if openDelay >= 1.5 then
             Add(SEV.INFO,
-                "You let your pet open the fight",
-                format("Your pet was already in combat for %s before your first cast.", ns.FmtTime(openDelay)),
-                "That is good play. It gives your pet time to build threat and take the hit instead of you.",
+                L["You let your pet open the fight"],
+                format(L["Your pet was already in combat for %s before your first cast."], ns.FmtTime(openDelay)),
+                L["That is good play. It gives your pet time to build threat and take the hit instead of you."],
                 nil)
         end
     end
@@ -620,22 +632,22 @@ local function AnalyzeFight(fightEnd, live)
     local deadPct = dur > 0 and (dead / dur) or 0
     if deadPct > 0.20 then
         Add(SEV.CRITICAL,
-            format("%d percent of the fight with nothing cast", ns.Round(deadPct * 100)),
-            format("%d gaps longer than %.0f seconds, %s in total.", gaps, DEAD_GAP, ns.FmtTime(dead)),
-            "Moving, swapping targets and running dry all land here. Something instant is almost always better than standing still.",
+            format(L["%d percent of the fight with nothing cast"], ns.Round(deadPct * 100)),
+            format(L["%d gaps longer than %.0f seconds, %s in total."], gaps, DEAD_GAP, ns.FmtTime(dead)),
+            L["Moving, swapping targets and running dry all land here. Something instant is almost always better than standing still."],
             deadPct)
     elseif deadPct > 0.10 then
         Add(SEV.WARN,
-            format("%d percent idle time", ns.Round(deadPct * 100)),
-            format("%d gaps longer than %.0f seconds.", gaps, DEAD_GAP),
-            "Some of this cannot be helped. The rest is free damage.",
+            format(L["%d percent idle time"], ns.Round(deadPct * 100)),
+            format(L["%d gaps longer than %.0f seconds."], gaps, DEAD_GAP),
+            L["Some of this cannot be helped. The rest is free damage."],
             deadPct)
     end
 
     if truncated then
-        Add(SEV.INFO, "Long fight, log truncated",
-            format("Only the most recent %d casts were kept.", CAP),
-            "The percentages above still describe the recorded part.", nil)
+        Add(SEV.INFO, L["Long fight, log truncated"],
+            format(L["Only the most recent %d casts were kept."], CAP),
+            L["The percentages above still describe the recorded part."], nil)
     end
 
     table.sort(findings, function(a, b)
@@ -809,16 +821,17 @@ local ShowFight
 
 local function UpdateFightRow(row, fight, index)
     if fight.live then
-        row.name:SetText("Current fight")
+        row.name:SetText(L["Current fight"])
         row.name:SetTextColor(unpack(T.accent))
-        row.sub:SetText(format("%s  |  %d casts  |  happening now",
+        row.sub:SetText(format(L["%s  |  %d casts  |  happening now"],
             ns.FmtTime(fight.dur), fight.casts))
-        row.badge:SetText("live")
+        row.badge:SetText(L["live"])
         row.badge:SetTextColor(unpack(T.bad))
     else
+        -- The target's name is the client's, so it goes in as it came.
         row.name:SetText(fight.target)
         row.name:SetTextColor(unpack(T.text))
-        row.sub:SetText(format("%s  |  %d casts  |  %s",
+        row.sub:SetText(format(L["%s  |  %d casts  |  %s"],
             ns.FmtTime(fight.dur), fight.casts, date("%H:%M", fight.when)))
 
         local crit = 0
@@ -829,7 +842,7 @@ local function UpdateFightRow(row, fight, index)
             row.badge:SetText(crit)
             row.badge:SetTextColor(unpack(T.bad))
         else
-            row.badge:SetText("ok")
+            row.badge:SetText(L["ok"])
             row.badge:SetTextColor(unpack(T.good))
         end
     end
@@ -930,14 +943,15 @@ function ShowFight(fight)
     -- built from what the sender chose to share, so any single missing field
     -- would otherwise throw inside the draw and leave the whole window blank
     -- with no visible cause.
+    -- The spec name, the target name and the zone name are the client's.
     specLine:SetText(format("%s  |  %s", fight.spec or "?",
-        fight.live and "fight in progress" or (fight.target or "shared fight")))
+        fight.live and L["fight in progress"] or (fight.target or L["shared fight"])))
 
     local petBit = ""
     if fight.petUptime then
-        petBit = format("  |  pet out %d%%", ns.Round(fight.petUptime * 100))
+        petBit = format(L["  |  pet out %d%%"], ns.Round(fight.petUptime * 100))
     end
-    summaryLine:SetText(format("%d casts in %s%s  |  %s",
+    summaryLine:SetText(format(L["%d casts in %s%s  |  %s"],
         fight.casts or 0, ns.FmtTime(fight.dur or 0), petBit, fight.zone or ""))
 
     cpmText:SetText(format("%.0f", fight.cpm or 0))
@@ -945,7 +959,7 @@ function ShowFight(fight)
     deadBar:SetColor((fight.deadPct or 0) > 0.20 and T.bad
         or ((fight.deadPct or 0) > 0.10 and T.warn or T.good))
     deadText:SetText(format("%d%%", ns.Round((fight.deadPct or 0) * 100)))
-    deadLabel:SetText(fight.deadSource == "Details" and "IDLE (DETAILS)" or "IDLE TIME")
+    deadLabel:SetText(fight.deadSource == "Details" and L["IDLE (DETAILS)"] or L["IDLE TIME"])
 
     if fight.dps then
         dpsBox:Show()
@@ -957,8 +971,8 @@ function ShowFight(fight)
     findingList:SetData(fight.findings or {}, fight.live)
     if #(fight.findings or {}) == 0 then
         emptyMsg:SetText(fight.live
-            and "Nothing wrong so far. Keep going."
-            or "Clean fight. Nothing stood out.")
+            and L["Nothing wrong so far. Keep going."]
+            or L["Clean fight. Nothing stood out."])
         emptyMsg:Show()
     end
 end
@@ -973,7 +987,7 @@ function ns.BuildRotationPage(page)
 
     local lh = UI.Font(left, 10, T.dim, nil, "LEFT")
     lh:SetPoint("TOPLEFT", 12, -10)
-    lh:SetText("RECENT FIGHTS")
+    lh:SetText(L["RECENT FIGHTS"])
 
     recDot = UI.Dot(left, 8, T.dim)
     recDot:SetPoint("TOPRIGHT", -12, -11)
@@ -1007,7 +1021,7 @@ function ns.BuildRotationPage(page)
     cpmLabel:SetPoint("BOTTOM", 0, 5)
     cpmLabel:SetPoint("LEFT")
     cpmLabel:SetPoint("RIGHT")
-    cpmLabel:SetText("CASTS / MIN")
+    cpmLabel:SetText(L["CASTS / MIN"])
 
     local deadBox = UI.Panel(right, T.raised)
     deadBox:SetPoint("TOPRIGHT", cpmBox, "TOPLEFT", -6, 0)
@@ -1020,7 +1034,7 @@ function ns.BuildRotationPage(page)
     deadLabel:SetPoint("BOTTOM", 0, 5)
     deadLabel:SetPoint("LEFT")
     deadLabel:SetPoint("RIGHT")
-    deadLabel:SetText("IDLE TIME")
+    deadLabel:SetText(L["IDLE TIME"])
     deadBar = UI.Bar(deadBox, T.good)
     deadBar:SetPoint("BOTTOMLEFT", 6, 16)
     deadBar:SetPoint("BOTTOMRIGHT", -6, 16)
@@ -1037,7 +1051,7 @@ function ns.BuildRotationPage(page)
     dpsLabel:SetPoint("BOTTOM", 0, 5)
     dpsLabel:SetPoint("LEFT")
     dpsLabel:SetPoint("RIGHT")
-    dpsLabel:SetText("DAMAGE / SEC")
+    dpsLabel:SetText(L["DAMAGE / SEC"])
     dpsBox:Hide()
 
     -- Right anchored to dpsBox, the leftmost of the three stat boxes, so the
@@ -1059,7 +1073,7 @@ function ns.BuildRotationPage(page)
     emptyMsg = UI.Font(right, 12, T.dim, nil, "CENTER")
     emptyMsg:SetPoint("CENTER", 0, -10)
     emptyMsg:SetWidth(380)
-    emptyMsg:SetText("No fights recorded yet. Pull something for at least five seconds and it will show up here.")
+    emptyMsg:SetText(L["No fights recorded yet. Pull something for at least five seconds and it will show up here."])
 
     RefreshList = function(liveTick)
         local subject = ns.Subject()
@@ -1074,9 +1088,9 @@ function ns.BuildRotationPage(page)
         end
 
         emptyMsg:SetText(subject.isSelf
-            and "No fights recorded yet. Pull something for at least five seconds and it will show up here."
-            or format("%s has not shared any fights yet. They need to fight something with rotation sharing turned on.",
-                      subject.name or "This player"))
+            and L["No fights recorded yet. Pull something for at least five seconds and it will show up here."]
+            or format(L["%s has not shared any fights yet. They need to fight something with rotation sharing turned on."],
+                      subject.name or L["This player"]))
 
         fightList:SetData(displayList, liveTick)
         if #displayList == 0 then ShowFight(nil) return end
@@ -1094,6 +1108,19 @@ function ns.BuildRotationPage(page)
         if recDot then
             recDot:SetVertexColor(unpack(on and T.bad or T.dim))
         end
+    end)
+
+    -- Created once, here on the build path. The headings are re-texted and the
+    -- lists are redrawn; the findings inside a fight already recorded keep the
+    -- language they were written in, because they are stored sentences and
+    -- there is no combat log left to rebuild them from. New fights come out in
+    -- the new language.
+    ns:Sub("LOCALE_CHANGED", function()
+        if not rotPage then return end
+        lh:SetText(L["RECENT FIGHTS"])
+        cpmLabel:SetText(L["CASTS / MIN"])
+        dpsLabel:SetText(L["DAMAGE / SEC"])
+        RefreshList()
     end)
 
     RefreshList()

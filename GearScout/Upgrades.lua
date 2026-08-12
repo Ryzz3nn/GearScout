@@ -51,6 +51,7 @@
 
 local ADDON, ns = ...
 
+local L = ns.L
 local CreateFrame, UIParent, UnitLevel = CreateFrame, UIParent, UnitLevel
 local GetItemInfo, GetItemInfoInstant = GetItemInfo, GetItemInfoInstant
 local format, ipairs, pairs, type, wipe = string.format, ipairs, pairs, type, wipe
@@ -217,11 +218,11 @@ local function EvaluateCandidate(itemID)
     end
     if ok2 then
         return { noSpecData = true,
-            specReason = explanation or "GearScout could not score this item for your spec yet, comparing by item level only." }
+            specReason = explanation or L["GearScout could not score this item for your spec yet, comparing by item level only."] }
     end
 
     return { noSpecData = true,
-        specReason = "GearScout could not score this item for your spec yet, comparing by item level only." }
+        specReason = L["GearScout could not score this item for your spec yet, comparing by item level only."] }
 end
 
 -- ---------------------------------------------------------------------------
@@ -304,15 +305,20 @@ local function GatherCandidates(slotID, wornIlvl)
     local bagUp = ns.GetBagUpgrades and ns.GetBagUpgrades() or {}
     for _, it in ipairs(bagUp) do
         if it.slotID == slotID then
-            Add(it.itemID, "bag", it.bank and "Already sitting in your bank." or "Already sitting in your bags.")
+            Add(it.itemID, "bag", it.bank and L["Already sitting in your bank."] or L["Already sitting in your bags."])
         end
     end
 
+    -- Quest titles, dungeon names, faction names and standing names all come
+    -- from the client or from the extracted game data, so they go into these
+    -- sentences exactly as they arrived.
     local questUp = ns.GetQuestUpgrades and ns.GetQuestUpgrades() or {}
     for _, it in ipairs(questUp) do
         if it.slotID == slotID then
-            local suffix = it.isChoice and " (one of the reward choices)." or "."
-            Add(it.itemID, "quest", format("Quest reward from %s%s", it.questTitle or "a quest", suffix))
+            Add(it.itemID, "quest", format(
+                it.isChoice and L["Quest reward from %s (one of the reward choices)."]
+                             or L["Quest reward from %s."],
+                it.questTitle or L["a quest"]))
         end
     end
 
@@ -321,7 +327,7 @@ local function GatherCandidates(slotID, wornIlvl)
         for _, it in ipairs(drops) do
             Add(it.itemID, "boss",
                 (ns.DescribeItemSource and ns.DescribeItemSource(it.itemID))
-                    or format("Drops in %s.", it.instance or "a dungeon"))
+                    or format(L["Drops in %s."], it.instance or L["a dungeon"]))
         end
         pending = pending + (drops.pending or 0)
     end
@@ -331,8 +337,8 @@ local function GatherCandidates(slotID, wornIlvl)
     if repList then
         for _, it in ipairs(repList) do
             Add(it.itemID, "reputation",
-                format("Reputation reward. Reach %s standing with %s and buy it from their quartermaster.",
-                    (it.standing or "the required"):lower(), it.faction or "the faction"))
+                format(L["Reputation reward. Reach %s standing with %s and buy it from their quartermaster."],
+                    (it.standing or L["the required"]):lower(), it.faction or L["the faction"]))
         end
     end
     pending = pending + repPending
@@ -500,13 +506,13 @@ local function MoneyText(copper)
     local cop = copper % 100
 
     local parts = {}
-    if gold > 0 then parts[#parts + 1] = format("%d gold", gold) end
-    if silver > 0 then parts[#parts + 1] = format("%d silver", silver) end
-    if cop > 0 or #parts == 0 then parts[#parts + 1] = format("%d copper", cop) end
+    if gold > 0 then parts[#parts + 1] = format(L["%d gold"], gold) end
+    if silver > 0 then parts[#parts + 1] = format(L["%d silver"], silver) end
+    if cop > 0 or #parts == 0 then parts[#parts + 1] = format(L["%d copper"], cop) end
 
     if #parts == 1 then return parts[1] end
-    if #parts == 2 then return parts[1] .. " and " .. parts[2] end
-    return parts[1] .. ", " .. parts[2] .. " and " .. parts[3]
+    if #parts == 2 then return parts[1] .. L[" and "] .. parts[2] end
+    return parts[1] .. ", " .. parts[2] .. L[" and "] .. parts[3]
 end
 
 -- ---------------------------------------------------------------------------
@@ -528,7 +534,7 @@ local function EvaluateSlot(slotID)
     }
 
     if not scan then
-        result.note = "Your gear has not been scanned yet. Open the Gear tab once so GearScout can read what you have equipped, then come back here."
+        result.note = L["Your gear has not been scanned yet. Open the Gear tab once so GearScout can read what you have equipped, then come back here."]
         return result
     end
 
@@ -544,7 +550,7 @@ local function EvaluateSlot(slotID)
     end
 
     if slotID == 17 and scan.twoHander then
-        result.note = "You have a two handed weapon equipped, so nothing goes in your off hand right now."
+        result.note = L["You have a two handed weapon equipped, so nothing goes in your off hand right now."]
         return result
     end
 
@@ -638,10 +644,10 @@ local function EvaluateSlot(slotID)
             local n = perTier[tier] or 0
             grouped[#grouped + 1] = {
                 isHeader  = true,
-                label     = heading and heading.title or "OTHER",
-                note      = heading and heading.note or nil,
+                label     = heading and L[heading.title] or L["OTHER"],
+                note      = heading and L[heading.note] or nil,
                 count     = n,
-                countText = format(n == 1 and "%d upgrade" or "%d upgrades", n),
+                countText = format(n == 1 and L["%d upgrade"] or L["%d upgrades"], n),
             }
             lastTier = tier
         end
@@ -835,7 +841,7 @@ local function UpdateSlotRow(row, def)
     -- before it was scrolled and reused.
     if rec and not rec.empty then
         row.link = rec.link
-        row.sub:SetText(rec.name or "Equipped item")
+        row.sub:SetText(rec.name or L["Equipped item"])
         row.sub:SetTextColor(QualityColor(rec.quality))
         row.ilvl:SetText(tostring(rec.ilvl or 0))
         row.ilvl:SetTextColor(unpack(T.text))
@@ -843,14 +849,14 @@ local function UpdateSlotRow(row, def)
         row.icon:SetAlpha(1)
     elseif rec and rec.expectedEmpty then
         row.link = nil
-        row.sub:SetText("Not used with your two hander.")
+        row.sub:SetText(L["Not used with your two hander."])
         row.sub:SetTextColor(unpack(T.dim))
         row.ilvl:SetText("")
         PaintIcon(row.icon, row.iconEdge, nil, nil, def.id)
         row.icon:SetAlpha(0.35)
     else
         row.link = nil
-        row.sub:SetText("Nothing equipped.")
+        row.sub:SetText(L["Nothing equipped."])
         row.sub:SetTextColor(unpack(T.bad))
         row.ilvl:SetText("")
         PaintIcon(row.icon, row.iconEdge, nil, nil, def.id)
@@ -912,14 +918,14 @@ local ARROW_ART = "Interface\\CHATFRAME\\ChatFrameExpandArrow"
 -- Built by both the measuring pass and the drawing pass, so a row is always
 -- measured for the very text it is about to show.
 local function UpgradeTitleText(item)
-    return item.name or "Unknown item"
+    return item.name or L["Unknown item"]
 end
 
 local function UpgradeMetaText(item)
     if (item.wornIlvl or 0) > 0 then
-        return format("Item level %d, up from %d.", item.ilvl or 0, item.wornIlvl or 0)
+        return format(L["Item level %d, up from %d."], item.ilvl or 0, item.wornIlvl or 0)
     end
-    return format("Item level %d, and that slot is empty right now.", item.ilvl or 0)
+    return format(L["Item level %d, and that slot is empty right now."], item.ilvl or 0)
 end
 
 -- A bought row still names where the item comes from, because that is useful:
@@ -932,11 +938,11 @@ local BUYABLE_NOTE = "It is not soulbound, so you can buy it instead of farming 
 local function UpgradeDetailText(item)
     local detail = (item.source and item.source.detail) or ""
     if item.buyable then
-        detail = detail .. " " .. BUYABLE_NOTE
+        detail = detail .. " " .. L[BUYABLE_NOTE]
     end
     if item.noSpecData then
         detail = detail .. " " .. (item.verdictText
-            or "GearScout has no researched stat weights for your spec yet.")
+            or L["GearScout has no researched stat weights for your spec yet."])
     elseif item.verdictText then
         detail = detail .. " " .. item.verdictText
     end
@@ -944,7 +950,7 @@ local function UpgradeDetailText(item)
 end
 
 local function UpgradePriceText(item)
-    return "Auction house price: " .. (item.priceText or "not known")
+    return format(L["Auction house price: %s"], item.priceText or L["not known"])
 end
 
 -- The one number the eye should land on first. A researched spec gets a real
@@ -1257,13 +1263,13 @@ local function ShowWorn(result)
     wornSlotLine:SetText(result.label or "Slot")
 
     if result.worn then
-        wornLine:SetText(format("%s, item level %d",
-            result.worn.name or "Unknown item", result.worn.ilvl or 0))
+        wornLine:SetText(format(L["%s, item level %d"],
+            result.worn.name or L["Unknown item"], result.worn.ilvl or 0))
         wornLine:SetTextColor(QualityColor(result.worn.quality))
         PaintIcon(wornIcon, wornIconEdge, result.worn.icon, result.worn.quality, result.slotID)
         wornIcon:SetAlpha(1)
     else
-        wornLine:SetText("Nothing equipped here right now.")
+        wornLine:SetText(L["Nothing equipped here right now."])
         wornLine:SetTextColor(unpack(T.dim))
         PaintIcon(wornIcon, wornIconEdge, nil, nil, result.slotID)
         wornIcon:SetAlpha(0.5)
@@ -1304,15 +1310,17 @@ ShowSlot = function(slotID)
     if result.note then
         caveatLine:SetText(result.note)
     elseif AnyNoSpecData(result) then
-        caveatLine:SetText("GearScout has no researched stat weights for your spec yet. Anything below showing an item level figure instead of a score is ranked by item level only, not by how much it actually helps.")
+        caveatLine:SetText(L["GearScout has no researched stat weights for your spec yet. Anything below showing an item level figure instead of a score is ranked by item level only, not by how much it actually helps."])
     else
         showCaveat = false
     end
 
     local showPending = (result.pending or 0) > 0
     if showPending then
-        pendingLine:SetText(format("%d more item%s still loading from the server. Reopen this tab in a moment to see them.",
-            result.pending, result.pending == 1 and " is" or "s are"))
+        pendingLine:SetText(result.pending == 1
+            and L["1 more item is still loading from the server. Reopen this tab in a moment to see it."]
+            or format(L["%d more items are still loading from the server. Reopen this tab in a moment to see them."],
+                result.pending))
     end
 
     LayoutPanel(showCaveat, showPending, result.ahSource ~= nil)
@@ -1321,8 +1329,8 @@ ShowSlot = function(slotID)
     earnedEmpty:SetShown(#result.earned == 0 and not result.note)
     if #result.earned == 0 then
         earnedEmpty:SetText(result.worn
-            and "Nothing found yet that beats what you have equipped there."
-            or "Nothing found yet for this empty slot.")
+            and L["Nothing found yet that beats what you have equipped there."]
+            or L["Nothing found yet for this empty slot."])
     end
 
     if result.ahSource then
@@ -1332,7 +1340,7 @@ ShowSlot = function(slotID)
         -- rewards and reputation rewards no longer get a price stapled to
         -- them, so it says why rather than sitting there blank.
         if #result.bought == 0 then
-            boughtList2Empty:SetText("Nothing for this slot can be bought. Quest and reputation rewards are soulbound, and so is everything above that a boss has to drop for you personally.")
+            boughtList2Empty:SetText(L["Nothing for this slot can be bought. Quest and reputation rewards are soulbound, and so is everything above that a boss has to drop for you personally."])
         end
     else
         boughtList:SetData({})
@@ -1366,11 +1374,9 @@ function ns.BuildUpgradesPage(page)
 
     local lh = UI.Font(left, 10, T.dim, nil, "LEFT")
     lh:SetPoint("TOPLEFT", 12, -10)
-    lh:SetText("GEAR SLOTS")
 
     local lhRight = UI.Font(left, 9, T.dim, nil, "RIGHT")
     lhRight:SetPoint("TOPRIGHT", -12, -10)
-    lhRight:SetText("EQUIPPED")
 
     local sep = UI.Divider(left)
     sep:SetPoint("TOPLEFT", 10, -26)
@@ -1407,7 +1413,6 @@ function ns.BuildUpgradesPage(page)
 
     local wornTag = UI.Font(rightPanel, 9, T.dim, nil, "RIGHT")
     wornTag:SetPoint("TOPRIGHT", -14, -14)
-    wornTag:SetText("EQUIPPED NOW")
 
     local sep2 = UI.Divider(rightPanel)
     sep2:SetPoint("TOPLEFT", 10, -56)
@@ -1432,7 +1437,6 @@ function ns.BuildUpgradesPage(page)
 
     earnedHeader = UI.Font(rightPanel, 10, T.dim, nil, "LEFT")
     earnedHeader:SetPoint("TOPLEFT", 14, -62)
-    earnedHeader:SetText("EARNED, THINGS YOU GO AND GET")
 
     -- Variable height rows. UPG_ROW_MIN_H is the shortest row of any shape this
     -- list can hold, a section heading, and it is only used to size the row
@@ -1458,7 +1462,27 @@ function ns.BuildUpgradesPage(page)
 
     boughtHeader = UI.Font(rightPanel, 10, T.dim, nil, "LEFT")
     boughtHeader:SetPoint("TOPLEFT", boughtDivider, "BOTTOMLEFT", 4, -8)
-    boughtHeader:SetText("BOUGHT, FROM THE AUCTION HOUSE")
+
+    -- Every fixed heading on this page, set here and again whenever the
+    -- language changes. Created once, on the build path.
+    local function ApplyLocale()
+        lh:SetText(L["GEAR SLOTS"])
+        lhRight:SetText(L["EQUIPPED"])
+        wornTag:SetText(L["EQUIPPED NOW"])
+        earnedHeader:SetText(L["EARNED, THINGS YOU GO AND GET"])
+        boughtHeader:SetText(L["BOUGHT, FROM THE AUCTION HOUSE"])
+    end
+    ApplyLocale()
+
+    ns:Sub("LOCALE_CHANGED", function()
+        if not upgPage then return end
+        ApplyLocale()
+        -- The rows carry sentences that were built in the old language, so
+        -- they are rebuilt rather than merely redrawn.
+        wipe(slotCache)
+        if selectedSlotID then ShowSlot(selectedSlotID) end
+        slotList:Refresh()
+    end)
 
     -- Same pool sizing rule as the earned list above: the shortest shape either
     -- list can contain, not the shortest item row.

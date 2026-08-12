@@ -153,6 +153,7 @@ end)
 -- saved variables
 -- ---------------------------------------------------------------------------
 ns.defaults = {
+    locale         = "enUS",     -- enUS | svSE, translates GearScout's own text only
     skin           = "obsidian", -- obsidian | slate, slate is the original flat look
     dataSource     = "research", -- research | builtin, builtin is the hand written fallback
     tooltip        = true,       -- add drop source and score lines to item tooltips

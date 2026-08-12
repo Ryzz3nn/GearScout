@@ -23,6 +23,7 @@ local ADDON, ns = ...
 
 local GetSpellInfo, pcall, type, pairs = GetSpellInfo, pcall, type, pairs
 local format, floor, abs, max = string.format, math.floor, math.abs, math.max
+local L = ns.L
 
 local ATTR_DAMAGE = 1   -- DETAILS_ATTRIBUTE_DAMAGE
 
@@ -207,9 +208,9 @@ function ns.AddDamageFindings(report)
        and (ns.playerClass == "HUNTER" or ns.playerClass == "WARLOCK") then
         report.findings[#report.findings + 1] = {
             sev = SEV.WARN,
-            title = "Your pet dealt no damage",
-            detail = "It was out for the whole fight but Details recorded nothing from it.",
-            fix = "It is probably passive, or it never reached the target. Set it to defensive, and make sure Claw or Bite is on autocast in the pet spellbook.",
+            title = L["Your pet dealt no damage"],
+            detail = L["It was out for the whole fight but Details recorded nothing from it."],
+            fix = L["It is probably passive, or it never reached the target. Set it to defensive, and make sure Claw or Bite is on autocast in the pet spellbook."],
             pct = 0,
         }
     end
@@ -230,10 +231,10 @@ function ns.AddDamageFindings(report)
             if avoidPct >= 0.35 then
                 report.findings[#report.findings + 1] = {
                     sev = SEV.WARN,
-                    title = format("%d percent of your melee swings were avoided", ns.Round(avoidPct * 100)),
-                    detail = format("%d of %d swings were dodged, parried or missed outright.",
+                    title = format(L["%d percent of your melee swings were avoided"], ns.Round(avoidPct * 100)),
+                    detail = format(L["%d of %d swings were dodged, parried or missed outright."],
                                      meleeMiss.total, attempts),
-                    fix = "This usually means you are standing in front of the target. Move to its side or back when you can, most enemies cannot dodge or parry an attack from there.",
+                    fix = L["This usually means you are standing in front of the target. Move to its side or back when you can, most enemies cannot dodge or parry an attack from there."],
                     pct = avoidPct,
                 }
             end
@@ -246,10 +247,10 @@ function ns.AddDamageFindings(report)
     if auto and auto.pct and auto.pct > 0.55 and (report.role == "melee" or report.role == "ranged") then
         report.findings[#report.findings + 1] = {
             sev = SEV.CRITICAL,
-            title = format("%d percent of your damage was plain auto attack",
+            title = format(L["%d percent of your damage was plain auto attack"],
                            ns.Round(auto.pct * 100)),
-            detail = "Auto attack is the swing that happens by itself when you stand next to something. Everything else on your bars is what you add on top.",
-            fix = "You are barely using your abilities. Pick the three or four buttons your spec cares about, put them somewhere easy to reach, and press them whenever they are ready.",
+            detail = L["Auto attack is the swing that happens by itself when you stand next to something. Everything else on your bars is what you add on top."],
+            fix = L["You are barely using your abilities. Pick the three or four buttons your spec cares about, put them somewhere easy to reach, and press them whenever they are ready."],
             pct = auto.pct,
         }
     end

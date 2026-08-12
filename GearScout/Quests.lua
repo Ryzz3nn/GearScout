@@ -20,6 +20,7 @@
 local ADDON, ns = ...
 
 local format, ipairs, pairs, type = string.format, ipairs, pairs, type
+local L = ns.L
 local huge = math.huge
 local GetItemInfo, GetItemInfoInstant = GetItemInfo, GetItemInfoInstant
 
@@ -289,17 +290,20 @@ function ns.GetQuestUpgradeIssue()
     local extra = #list - 1
 
     local detail = format(
-        "%s is already in your quest log, so you have done the work for it. Its %s reward is item level %d, better than the item level %d you have equipped there now.",
+        L["%s is already in your quest log, so you have done the work for it. Its %s reward is item level %d, better than the item level %d you have equipped there now."],
         top.questTitle, top.slotLabel:lower(), top.itemIlvl, top.equippedIlvl)
-    if extra > 0 then
-        detail = detail .. format(" There %s %d more quest reward%s in your log that would also be an upgrade.",
-            extra == 1 and "is" or "are", extra, extra == 1 and "" or "s")
+    -- One whole sentence per count. English pluralises with a suffix and most
+    -- languages do not, so there is nothing to glue on.
+    if extra == 1 then
+        detail = detail .. L[" There is 1 more quest reward in your log that would also be an upgrade."]
+    elseif extra > 1 then
+        detail = detail .. format(L[" There are %d more quest rewards in your log that would also be an upgrade."], extra)
     end
 
     return {
         sev    = ns.SEVERITY.INFO,
-        title  = format("Turn in %s for a better %s", top.questTitle, top.slotLabel:lower()),
+        title  = format(L["Turn in %s for a better %s"], top.questTitle, top.slotLabel:lower()),
         detail = detail,
-        fix    = format("Hand in %s. The reward is a straight upgrade over what you have equipped, and you already finished the quest.", top.questTitle),
+        fix    = format(L["Hand in %s. The reward is a straight upgrade over what you have equipped, and you already finished the quest."], top.questTitle),
     }
 end

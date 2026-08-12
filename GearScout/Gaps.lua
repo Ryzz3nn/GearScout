@@ -17,6 +17,7 @@ local ADDON, ns = ...
 
 local SEV = ns.SEVERITY
 local ipairs, pairs, format, type = ipairs, pairs, string.format, type
+local L = ns.L
 local GetInventoryItemLink = GetInventoryItemLink
 local GetInventoryItemCount = GetInventoryItemCount
 local GetItemInfo = GetItemInfo
@@ -70,9 +71,10 @@ local function CheckTalentPoints(issues)
     if not ok or type(pts) ~= "number" or pts <= 0 then return end
 
     Add(issues, SEV.WARN, nil,
-        format("You have %d unspent talent point%s", pts, pts == 1 and "" or "s"),
-        "Talent points make your character permanently stronger and cost nothing to spend. Right now they are sitting unused and doing nothing for you.",
-        "Open your talents from the main menu, or press the default key N, and click a point into any tree you like. You can move points around again later for a fee.",
+        pts == 1 and L["You have 1 unspent talent point"]
+            or format(L["You have %d unspent talent points"], pts),
+        L["Talent points make your character permanently stronger and cost nothing to spend. Right now they are sitting unused and doing nothing for you."],
+        L["Open your talents from the main menu, or press the default key N, and click a point into any tree you like. You can move points around again later for a fee."],
         W.talentPoints)
 end
 
@@ -179,9 +181,9 @@ local function CheckAmmo(issues, info)
 
     if not info.present then
         Add(issues, SEV.CRITICAL, rec,
-            "You have no ammo loaded",
-            "Your bow, crossbow or gun needs arrows or bullets sitting in your ammo slot to fire at all. That slot is empty right now, so you cannot attack at range.",
-            "Buy arrows or bullets from any vendor that sells weapons, whichever your weapon uses, then right click the stack to load it into your ammo slot.",
+            L["You have no ammo loaded"],
+            L["Your bow, crossbow or gun needs arrows or bullets sitting in your ammo slot to fire at all. That slot is empty right now, so you cannot attack at range."],
+            L["Buy arrows or bullets from any vendor that sells weapons, whichever your weapon uses, then right click the stack to load it into your ammo slot."],
             W.noAmmo)
         return
     end
@@ -192,10 +194,10 @@ local function CheckAmmo(issues, info)
     local level = ns.playerLevel or 0
     if info.minLevel and info.minLevel > 0 and (level - info.minLevel) > 20 then
         Add(issues, SEV.WARN, rec,
-            "Your ammo is far below your level",
-            format("%s is old ammo, meant for characters level %d and under. Ammo damage scales with the ammo itself, so this is doing noticeably less damage than ammo made for where you are now.",
-                   info.ammoName or "Your current ammo", info.minLevel),
-            "Buy the newest arrows or bullets a weapons vendor near your level sells, and load those instead.",
+            L["Your ammo is far below your level"],
+            format(L["%s is old ammo, meant for characters level %d and under. Ammo damage scales with the ammo itself, so this is doing noticeably less damage than ammo made for where you are now."],
+                   info.ammoName or L["Your current ammo"], info.minLevel),
+            L["Buy the newest arrows or bullets a weapons vendor near your level sells, and load those instead."],
             W.oldAmmo)
     end
 
@@ -205,9 +207,9 @@ local function CheckAmmo(issues, info)
     -- quiver is the same false accusation as the one this file just fixed.
     if info.count > 0 and info.count < 50 then
         Add(issues, SEV.WARN, rec,
-            format("You are low on ammo: %d left", info.count),
-            "Ammo is used up on every shot. Running out in the middle of a fight leaves you with no ranged attack at all until you restock.",
-            "Buy a full stack from any vendor that sells ammo before you head back out to quest.",
+            format(L["You are low on ammo: %d left"], info.count),
+            L["Ammo is used up on every shot. Running out in the middle of a fight leaves you with no ranged attack at all until you restock."],
+            L["Buy a full stack from any vendor that sells ammo before you head back out to quest."],
             W.lowAmmo)
     end
 end
@@ -255,12 +257,17 @@ local function CheckQuiver(issues, ammoInfo)
     end
     if hasOne then return end
 
+    -- The bag type is the game's own word for it, kept in English the way
+    -- players say it. Only the sentence around it moves, and the two titles
+    -- are written out in full because "an" against "a" is English grammar
+    -- with no counterpart to paste in elsewhere.
     local label = ammoInfo.ammoKind == "pouch" and "ammo pouch" or "quiver"
     Add(issues, SEV.WARN, nil,
-        format("You do not have %s %s", label == "ammo pouch" and "an" or "a", label),
-        format("A %s holds your ammo and makes you shoot noticeably faster. Without one, your shooting speed is stuck at its slowest for no reason.",
+        label == "ammo pouch" and L["You do not have an ammo pouch"]
+            or L["You do not have a quiver"],
+        format(L["A %s holds your ammo and makes you shoot noticeably faster. Without one, your shooting speed is stuck at its slowest for no reason."],
                label),
-        format("Buy a %s from a leatherworker, the auction house, or a vendor near your class trainer, then drag it onto any empty bag slot. It works from there without doing anything else.",
+        format(L["Buy a %s from a leatherworker, the auction house, or a vendor near your class trainer, then drag it onto any empty bag slot. It works from there without doing anything else."],
                label),
         W.noQuiver)
 end
@@ -291,9 +298,9 @@ local function CheckRiding(issues)
         local j, e, a = KnowsRideRank(RIDE_SPELL.journeyman), KnowsRideRank(RIDE_SPELL.expert), KnowsRideRank(RIDE_SPELL.artisan)
         if j ~= nil and e ~= nil and a ~= nil and not (j or e or a) then
             Add(issues, SEV.WARN, nil,
-                "You can learn to ride but have not",
-                "From level 40 you can train riding, which lets you buy a mount. A mount moves much faster than running everywhere on foot.",
-                "Find a riding trainer in any major city, pay for riding training, then buy a mount from the stable master standing nearby.",
+                L["You can learn to ride but have not"],
+                L["From level 40 you can train riding, which lets you buy a mount. A mount moves much faster than running everywhere on foot."],
+                L["Find a riding trainer in any major city, pay for riding training, then buy a mount from the stable master standing nearby."],
                 W.noRiding)
         end
     end
@@ -302,9 +309,9 @@ local function CheckRiding(issues)
         local e, a = KnowsRideRank(RIDE_SPELL.expert), KnowsRideRank(RIDE_SPELL.artisan)
         if e ~= nil and a ~= nil and not (e or a) then
             Add(issues, SEV.WARN, nil,
-                "You can learn expert riding but have not",
-                "From level 60 you can train expert riding, which is what allows you to fly once you reach Outland.",
-                "Find a riding trainer, pay for expert riding training, then buy a flying mount once you are in Outland.",
+                L["You can learn expert riding but have not"],
+                L["From level 60 you can train expert riding, which is what allows you to fly once you reach Outland."],
+                L["Find a riding trainer, pay for expert riding training, then buy a flying mount once you are in Outland."],
                 W.noRiding)
         end
     end
@@ -323,9 +330,9 @@ local function CheckEmptyRangedForMelee(issues, ammoInfo)
     if ammoInfo.equipped then return end
 
     Add(issues, SEV.WARN, { slotID = 18, label = "Ranged" },
-        "Your ranged slot is empty",
-        "A cheap thrown weapon or a bow in that slot lets you damage an enemy before it reaches you, which is how most players start a fight on their own terms instead of the enemy's.",
-        "Buy a throwing weapon or a bow from any vendor that sells weapons and equip it in your ranged slot. It does not need to be good, it only needs to be there.",
+        L["Your ranged slot is empty"],
+        L["A cheap thrown weapon or a bow in that slot lets you damage an enemy before it reaches you, which is how most players start a fight on their own terms instead of the enemy's."],
+        L["Buy a throwing weapon or a bow from any vendor that sells weapons and equip it in your ranged slot. It does not need to be good, it only needs to be there."],
         W.emptyRanged)
 end
 
@@ -346,7 +353,10 @@ local function CheckWeaponBuff(issues)
     local level = ns.playerLevel or 0
     if level < 10 then return end
 
-    local label = WEAPON_BUFF_LABEL[ns.playerClass]
+    -- Translated here rather than at each use, because the sentence below
+    -- puts it in twice, once capitalised. Item type names inside it stay in
+    -- English: a Swedish rogue asks for a poison, not for a "gift".
+    local label = L[WEAPON_BUFF_LABEL[ns.playerClass]]
     if not label then return end
 
     local mainLink = GetInventoryItemLink("player", 16)
@@ -356,10 +366,10 @@ local function CheckWeaponBuff(issues)
     if hasMH then return end
 
     Add(issues, SEV.INFO, { slotID = 16, label = "Main Hand" },
-        "No temporary buff on your main hand weapon",
-        format("%s applied to your weapon adds real damage for a while, and keeping one active is standard practice for a %s.",
+        L["No temporary buff on your main hand weapon"],
+        format(L["%s applied to your weapon adds real damage for a while, and keeping one active is standard practice for a %s."],
                label:sub(1, 1):upper() .. label:sub(2), ns.playerClass == "ROGUE" and "rogue" or "warrior"),
-        format("Buy %s from a vendor or the auction house, right click it, then click your main hand weapon to apply it.", label),
+        format(L["Buy %s from a vendor or the auction house, right click it, then click your main hand weapon to apply it."], label),
         W.noWeaponBuff)
 end
 
@@ -391,9 +401,9 @@ local function CheckBags(issues)
 
     if not hasExtraBag then
         Add(issues, SEV.WARN, nil,
-            "You are still using only your starting backpack",
-            "With no extra bags equipped you have very little room to carry quest items, gear you pick up, or anything worth selling, so you have to stop and empty your bags far more often than you need to.",
-            "Buy any bag from a vendor, even a small cheap one, and drag it onto an empty slot in your backpack. Every extra bag helps.",
+            L["You are still using only your starting backpack"],
+            L["With no extra bags equipped you have very little room to carry quest items, gear you pick up, or anything worth selling, so you have to stop and empty your bags far more often than you need to."],
+            L["Buy any bag from a vendor, even a small cheap one, and drag it onto an empty slot in your backpack. Every extra bag helps."],
             W.starterBag)
     end
 
@@ -406,9 +416,9 @@ local function CheckBags(issues)
         end
         if totalFree <= 0 then
             Add(issues, SEV.CRITICAL, nil,
-                "Your bags are completely full",
-                "With zero free slots you cannot pick up quest items, loot, or anything else until you make room.",
-                "Sell or delete anything you do not need at a vendor, or mail items to another character, before you keep playing.",
+                L["Your bags are completely full"],
+                L["With zero free slots you cannot pick up quest items, loot, or anything else until you make room."],
+                L["Sell or delete anything you do not need at a vendor, or mail items to another character, before you keep playing."],
                 W.bagsFull)
         end
     end

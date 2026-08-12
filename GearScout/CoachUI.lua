@@ -6,7 +6,20 @@
 local ADDON, ns = ...
 
 local UI, T, SEV = ns.UI, ns.T, ns.SEVERITY
+local L = ns.L
 local format, ipairs, unpack = string.format, ipairs, unpack
+
+-- Static labels are written once, while the window is being built, so a
+-- change of language has to go back and re-text them. Each builder hands its
+-- own re-texting function to Relabel below while it is CONSTRUCTING, never
+-- while it is drawing, so no closure, font string or frame is ever created on
+-- an update path. Relabel runs it immediately, which is what sets the label
+-- in the first place, and Build subscribes the whole list to LOCALE_CHANGED.
+local relabels = {}
+local function Relabel(fn)
+    relabels[#relabels + 1] = fn
+    fn()
+end
 
 local win, pages, tabBar
 local gearPage, upgradesPage, enchantsPage, rotationPage, settingsPage
@@ -45,7 +58,6 @@ local function BuildScoreCard(parent)
 
     local caption = UI.Font(card, 10, T.dim)
     caption:SetPoint("TOPLEFT", scoreValue, "TOPLEFT", 0, 14)
-    caption:SetText("GEAR SCORE")
 
     scoreBar = UI.Bar(card, T.good)
     scoreBar:SetPoint("BOTTOMLEFT", 14, 26)
@@ -55,15 +67,22 @@ local function BuildScoreCard(parent)
     scoreSub = UI.Font(card, 11, T.dim, nil, "LEFT")
     scoreSub:SetPoint("BOTTOMLEFT", 14, 9)
     scoreSub:SetPoint("BOTTOMRIGHT", -14, 9)
-    scoreSub:SetText("Not scanned yet")
 
+    -- Filled in by the tooltip hook below at hover time, so it reads the
+    -- language that is live when the player actually points at the card.
     UI.HookTooltip(card, function(_, tip)
-        tip:SetText("Gear score", 1, 1, 1)
-        tip:AddLine("One number out of 100 for how well put together your gear is.", 0.8, 0.84, 0.9, true)
+        tip:SetText(L["Gear score"], 1, 1, 1)
+        tip:AddLine(L["One number out of 100 for how well put together your gear is."], 0.8, 0.84, 0.9, true)
         tip:AddLine(" ")
-        tip:AddLine("It starts at 100 and loses points for empty slots, missing enchants, empty gem holes, wearing the wrong type of armor, and pieces that are far behind the rest of your set.", 0.8, 0.84, 0.9, true)
+        tip:AddLine(L["It starts at 100 and loses points for empty slots, missing enchants, empty gem holes, wearing the wrong type of armor, and pieces that are far behind the rest of your set."], 0.8, 0.84, 0.9, true)
         tip:AddLine(" ")
-        tip:AddLine("It does not measure how rare your items are. It measures how much free power you are leaving on the table.", 0.3, 0.64, 1, true)
+        tip:AddLine(L["It does not measure how rare your items are. It measures how much free power you are leaving on the table."], 0.3, 0.64, 1, true)
+    end)
+
+    Relabel(function()
+        caption:SetText(L["GEAR SCORE"])
+        -- Only the placeholder. A real scan overwrites this in Refresh.
+        if not ns.lastReport then scoreSub:SetText(L["Not scanned yet"]) end
     end)
 
     return card
@@ -86,13 +105,21 @@ local function BuildChips(parent, anchor)
         chip.value:SetPoint("TOPLEFT", 8, -5)
         chip.value:SetText("0")
 
+        -- Two anchors on the bottom edge, so the width is fixed and the height
+        -- stays intrinsic. A translated label that runs longer than the
+        -- English one wraps upward instead of being cut off at the chip edge.
         chip.label = UI.Font(chip, 9, T.dim, nil, "LEFT")
         chip.label:SetPoint("BOTTOMLEFT", 8, 5)
         chip.label:SetPoint("BOTTOMRIGHT", -6, 5)
-        chip.label:SetText(def.label:upper())
 
         chips[def.key] = chip
     end
+
+    Relabel(function()
+        for _, def in ipairs(CHIP_DEFS) do
+            chips[def.key].label:SetText(L[def.label]:upper())
+        end
+    end)
     return grid
 end
 
@@ -135,27 +162,27 @@ local function CreateSlotRow(list)
             GameTooltip:AddLine(" ")
         else
             GameTooltip:SetText(rec.label, 1, 1, 1)
-            GameTooltip:AddLine("Nothing equipped here.", 1, 0.37, 0.34, true)
+            GameTooltip:AddLine(L["Nothing equipped here."], 1, 0.37, 0.34, true)
         end
         -- explain the two dots, because nobody guesses what they mean
         if rec.link then
             if not rec.enchantable then
-                GameTooltip:AddLine("Enchant: this slot cannot take one.", 0.55, 0.58, 0.65)
+                GameTooltip:AddLine(L["Enchant: this slot cannot take one."], 0.55, 0.58, 0.65)
             elseif rec.enchanted then
-                GameTooltip:AddLine("Enchant: yes, this item is enchanted.", 0.28, 0.82, 0.42)
+                GameTooltip:AddLine(L["Enchant: yes, this item is enchanted."], 0.28, 0.82, 0.42)
             elseif (ns.playerLevel or 0) < (ns.ENCHANT_WORTH_IT or 58) then
                 -- Missing, but deliberately not counted against you yet. Saying
                 -- so here keeps this tooltip agreeing with the summary chip
                 -- above it instead of contradicting it.
-                GameTooltip:AddLine(format("Enchant: missing, and that is fine for now. Enchants start being worth the gold at level %d.",
+                GameTooltip:AddLine(format(L["Enchant: missing, and that is fine for now. Enchants start being worth the gold at level %d."],
                     ns.ENCHANT_WORTH_IT or 58), 0.55, 0.58, 0.65)
             else
-                GameTooltip:AddLine("Enchant: missing. Free stats you are not getting.", 1, 0.37, 0.34)
+                GameTooltip:AddLine(L["Enchant: missing. Free stats you are not getting."], 1, 0.37, 0.34)
             end
             if (rec.sockets or 0) == 0 then
-                GameTooltip:AddLine("Gems: this item has no gem holes.", 0.55, 0.58, 0.65)
+                GameTooltip:AddLine(L["Gems: this item has no gem holes."], 0.55, 0.58, 0.65)
             else
-                GameTooltip:AddLine(format("Gems: %d of %d holes filled.",
+                GameTooltip:AddLine(format(L["Gems: %d of %d holes filled."],
                     rec.gemsFilled or 0, rec.sockets),
                     (rec.emptySockets or 0) == 0 and 0.28 or 1,
                     (rec.emptySockets or 0) == 0 and 0.82 or 0.74,
@@ -178,7 +205,7 @@ local function UpdateSlotRow(row, rec)
     if rec.empty then
         row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
         row.icon:SetDesaturated(true)
-        row.ilvl:SetText(rec.expectedEmpty and "-" or "none")
+        row.ilvl:SetText(rec.expectedEmpty and "-" or L["none"])
         row.ilvl:SetTextColor(unpack(rec.expectedEmpty and T.dim or T.bad))
         row.enchDot:SetVertexColor(0.25, 0.27, 0.31, 1)
         row.gemDot:SetVertexColor(0.25, 0.27, 0.31, 1)
@@ -396,11 +423,13 @@ local function BuildGearPage(parent)
 
     local slotHeader = UI.Font(left, 10, T.dim, nil, "LEFT")
     slotHeader:SetPoint("TOPLEFT", grid, "BOTTOMLEFT", 2, -8)
-    slotHeader:SetText("EQUIPPED")
 
+    -- Three column headings sharing one right aligned string. The gap widths
+    -- are what line them up over the dots, so a translation has to keep three
+    -- short words; anything longer would push the first one under the header
+    -- on the left.
     local legend = UI.Font(left, 9, T.dim, nil, "RIGHT")
     legend:SetPoint("TOPRIGHT", grid, "BOTTOMRIGHT", -2, -8)
-    legend:SetText("LEVEL  ENCH  GEM")
 
     slotList = UI.List(left, 22, CreateSlotRow, UpdateSlotRow)
     slotList:SetPoint("TOPLEFT", slotHeader, "BOTTOMLEFT", -2, -4)
@@ -414,7 +443,6 @@ local function BuildGearPage(parent)
     -- the column the row text starts in rather than near it.
     local rh = UI.Font(right, 10, T.dim, nil, "LEFT")
     rh:SetPoint("TOPLEFT", 6 + ROW_TEXT_LEFT, -9)
-    rh:SetText("WHAT TO FIX, HIGHEST IMPACT FIRST")
 
     issueCount = UI.Font(right, 10, T.dim, nil, "RIGHT")
     issueCount:SetPoint("TOPRIGHT", -12, -9)
@@ -437,8 +465,14 @@ local function BuildGearPage(parent)
 
     issueEmpty = UI.Font(right, 13, T.good)
     issueEmpty:SetPoint("CENTER", 0, 10)
-    issueEmpty:SetText("Nothing to fix. Gear is clean.")
     issueEmpty:Hide()
+
+    Relabel(function()
+        slotHeader:SetText(L["EQUIPPED"])
+        legend:SetText(L["LEVEL  ENCH  GEM"])
+        rh:SetText(L["WHAT TO FIX, HIGHEST IMPACT FIRST"])
+        issueEmpty:SetText(L["Nothing to fix. Gear is clean."])
+    end)
 
     return page
 end
@@ -462,7 +496,7 @@ local function BuildUpgradesPage(parent)
     local msg = UI.Font(page, 12, T.dim, nil, "CENTER")
     msg:SetPoint("CENTER")
     msg:SetWidth(420)
-    msg:SetText("The upgrade finder is not loaded in this build.")
+    Relabel(function() msg:SetText(L["The upgrade finder is not loaded in this build."]) end)
     return page
 end
 
@@ -481,7 +515,7 @@ local function BuildEnchantsPage(parent)
     local msg = UI.Font(page, 12, T.dim, nil, "CENTER")
     msg:SetPoint("CENTER")
     msg:SetWidth(420)
-    msg:SetText("The enchanting guide is not loaded in this build.")
+    Relabel(function() msg:SetText(L["The enchanting guide is not loaded in this build."]) end)
     return page
 end
 
@@ -497,13 +531,19 @@ local function BuildRotationPage(parent)
     local msg = UI.Font(page, 12, T.dim, nil, "CENTER")
     msg:SetPoint("CENTER")
     msg:SetWidth(420)
-    msg:SetText("Rotation tracking is not loaded in this build.")
+    Relabel(function() msg:SetText(L["Rotation tracking is not loaded in this build."]) end)
     return page
 end
 
 -- ---------------------------------------------------------------------------
 -- settings page
 -- ---------------------------------------------------------------------------
+local SETTINGS_LEFT   = 14
+local SETTINGS_RIGHT  = 14
+-- Fallback only, for the one frame before the panel has resolved its own
+-- width: the window is 790 wide and the page insets it by 12 on each side.
+local SETTINGS_WIDTH  = 766
+
 local function BuildSettingsPage(parent)
     local page = CreateFrame("Frame", nil, parent)
     page:SetAllPoints()
@@ -512,29 +552,83 @@ local function BuildSettingsPage(parent)
     box:SetPoint("TOPLEFT", 12, -8)
     box:SetPoint("BOTTOMRIGHT", -12, 8)
 
-    local y = -14
+    -- The page is described once, as an ordered list, and laid out by a second
+    -- pass that only moves and re-texts what already exists. That split is
+    -- what lets the whole tab be laid out again when the language changes:
+    -- a translated sentence wraps to a different number of lines, so every
+    -- row under it has to move, and none of the paragraphs may carry a fixed
+    -- height or the longer language would simply be cut off.
+    local items = {}
 
-    local function Header(text)
+    local function TextWidth(rightInset)
+        local w = box:GetWidth()
+        if not w or w <= 0 then w = SETTINGS_WIDTH end
+        return math.max(1, w - SETTINGS_LEFT - rightInset)
+    end
+
+    -- Every section but the first is set off from the one above it.
+    local function AddHeader(key)
         local h = UI.Font(box, 10, T.dim, nil, "LEFT")
-        h:SetPoint("TOPLEFT", 14, y)
-        h:SetText(text)
-        y = y - 22
+        items[#items + 1] = { kind = "header", obj = h, key = key,
+                              gapBefore = (#items > 0) and 10 or nil }
         return h
     end
 
-    local function Note(text)
+    -- text is a function so a paragraph whose contents change, such as the
+    -- trusted name list, can be re-read on every layout pass.
+    local function AddNote(text, rightInset)
         local n = UI.Font(box, 11, T.dim, nil, "LEFT")
-        n:SetPoint("TOPLEFT", 14, y)
-        n:SetPoint("RIGHT", box, "RIGHT", -14, 0)
-        n:SetText(text)
-        n:SetHeight(30)
         n:SetJustifyV("TOP")
-        y = y - 34
+        items[#items + 1] = { kind = "note", obj = n, text = text,
+                              rightInset = rightInset or SETTINGS_RIGHT }
         return n
     end
 
-    Header("PRIVACY")
-    Note("GearScout only ever sends your own gear, and only when someone asks for it. You never receive anyone else's gear: the code that displays other players lives in a separate addon that raid leads install.")
+    local function AddRow(obj, gap, relabel)
+        items[#items + 1] = { kind = "row", obj = obj, gap = gap or 26, relabel = relabel }
+        return obj
+    end
+
+    -- Sits on the same line as the item after it rather than claiming its own.
+    local function AddCorner(obj, relabel)
+        items[#items + 1] = { kind = "corner", obj = obj, relabel = relabel }
+        return obj
+    end
+
+    -- A caption to the right of a select. Anchored on both sides so a longer
+    -- translation wraps inside the panel instead of running off the edge.
+    local function SideLabel(sel, key)
+        local f = UI.Font(box, 11, T.text, nil, "LEFT")
+        f:SetPoint("LEFT", sel, "RIGHT", 10, 0)
+        f:SetPoint("RIGHT", box, "RIGHT", -SETTINGS_RIGHT, 0)
+        return function() f:SetText(L[key]) end
+    end
+
+    -- -----------------------------------------------------------------------
+    -- language
+    -- First, because it decides how the rest of this tab reads. The two
+    -- option names are written in their own language and are never
+    -- translated, which is how every language picker works.
+    -- -----------------------------------------------------------------------
+    AddHeader("LANGUAGE")
+    AddNote(function() return L["Translates GearScout's own text. Item names, enchant names and everything else the game itself supplies stay in your game client's language."] end)
+
+    local langSel = UI.Select(box, 210, ns.LOCALE_OPTIONS,
+        function() return (ns.db and ns.db.locale) or "enUS" end,
+        function(v)
+            if not ns.db then return end
+            ns.db.locale = v
+            -- Emits LOCALE_CHANGED, which re-texts every open window.
+            ns.SetLocale(v)
+        end)
+    local langLabel = SideLabel(langSel, "Language")
+    AddRow(langSel, 34, langLabel)
+
+    -- -----------------------------------------------------------------------
+    -- privacy
+    -- -----------------------------------------------------------------------
+    AddHeader("PRIVACY")
+    AddNote(function() return L["GearScout only ever sends your own gear, and only when someone asks for it. You never receive anyone else's gear: the code that displays other players lives in a separate addon that raid leads install."] end)
 
     local sel = UI.Select(box, 210, {
         { value = "leaders", text = "Group leader and assistants" },
@@ -543,41 +637,44 @@ local function BuildSettingsPage(parent)
         { value = "nobody",  text = "Nobody, decline every request" },
     }, function() return ns.db.respondTo end,
        function(v) ns.db.respondTo = v end)
-    sel:SetPoint("TOPLEFT", 14, y)
-    local selLabel = UI.Font(box, 11, T.text, nil, "LEFT")
-    selLabel:SetPoint("LEFT", sel, "RIGHT", 10, 0)
-    selLabel:SetText("Answer gear requests from")
-    y = y - 34
+    local selLabel = SideLabel(sel, "Answer gear requests from")
+    AddRow(sel, 34, function()
+        sel:SetOptionTexts({
+            L["Group leader and assistants"],
+            L["Anyone in my guild"],
+            L["Anyone who asks"],
+            L["Nobody, decline every request"],
+        })
+        selLabel()
+    end)
 
-    local cbRot = UI.CheckBox(box, "Include a rotation summary in my reply",
+    local cbRot = UI.CheckBox(box, "",
         function() return ns.db.shareRotation end,
         function(v) ns.db.shareRotation = v end)
-    cbRot:SetPoint("TOPLEFT", 14, y)
-    y = y - 26
+    AddRow(cbRot, 26, function() cbRot:SetLabel(L["Include a rotation summary in my reply"]) end)
 
-    y = y - 10
-    Header("BEHAVIOUR")
+    -- -----------------------------------------------------------------------
+    -- behaviour
+    -- -----------------------------------------------------------------------
+    AddHeader("BEHAVIOUR")
 
-    local cbAuto = UI.CheckBox(box, "Scan automatically when gear changes",
+    local cbAuto = UI.CheckBox(box, "",
         function() return ns.db.autoScan end,
         function(v) ns.db.autoScan = v end)
-    cbAuto:SetPoint("TOPLEFT", 14, y)
-    y = y - 26
+    AddRow(cbAuto, 26, function() cbAuto:SetLabel(L["Scan automatically when gear changes"]) end)
 
-    local cbTip = UI.CheckBox(box, "Add GearScout lines to item tooltips",
+    local cbTip = UI.CheckBox(box, "",
         function() return ns.db.tooltip end,
         function(v) ns.db.tooltip = v end)
-    cbTip:SetPoint("TOPLEFT", 14, y)
-    y = y - 26
+    AddRow(cbTip, 26, function() cbTip:SetLabel(L["Add GearScout lines to item tooltips"]) end)
 
-    local cbMap = UI.CheckBox(box, "Show the minimap button",
+    local cbMap = UI.CheckBox(box, "",
         function() return ns.db.showMinimap end,
         function(v)
             ns.db.showMinimap = v
             if ns.minimapButton then ns.minimapButton:SetShown(v) end
         end)
-    cbMap:SetPoint("TOPLEFT", 14, y)
-    y = y - 34
+    AddRow(cbMap, 34, function() cbMap:SetLabel(L["Show the minimap button"]) end)
 
     local slackSel = UI.Select(box, 210, {
         { value = 6,  text = "Strict, 6 item levels" },
@@ -585,23 +682,24 @@ local function BuildSettingsPage(parent)
         { value = 20, text = "Relaxed, 20 item levels" },
     }, function() return ns.db.ilvlSlack end,
        function(v) ns.db.ilvlSlack = v ns.RequestRescan() end)
-    slackSel:SetPoint("TOPLEFT", 14, y)
-    local slackLabel = UI.Font(box, 11, T.text, nil, "LEFT")
-    slackLabel:SetPoint("LEFT", slackSel, "RIGHT", 10, 0)
-    slackLabel:SetText("How far under your median counts as a weak link")
-    y = y - 40
+    local slackLabel = SideLabel(slackSel, "How far under your median counts as a weak link")
+    AddRow(slackSel, 40, function()
+        slackSel:SetOptionTexts({
+            L["Strict, 6 item levels"],
+            L["Normal, 12 item levels"],
+            L["Relaxed, 20 item levels"],
+        })
+        slackLabel()
+    end)
 
+    -- -----------------------------------------------------------------------
+    -- trusted requesters
     -- Ticking "always share with this person" on the request popup writes a
     -- name into ns.db.trustedRequesters, and until now there was no way to
     -- see that list or take a name back out of it. A permission you can grant
     -- but never revoke is not really a permission.
-    Header("PEOPLE YOU ALWAYS SHARE WITH")
-
-    local trustedText = UI.Font(box, 11, T.dim, nil, "LEFT")
-    trustedText:SetPoint("TOPLEFT", 14, y)
-    trustedText:SetPoint("RIGHT", box, "RIGHT", -150, 0)
-    trustedText:SetHeight(30)
-    trustedText:SetJustifyV("TOP")
+    -- -----------------------------------------------------------------------
+    AddHeader("PEOPLE YOU ALWAYS SHARE WITH")
 
     local function TrustedNames()
         local names = {}
@@ -614,28 +712,85 @@ local function BuildSettingsPage(parent)
     end
 
     local forgetBtn
+    local Layout
 
-    local function RefreshTrusted()
+    -- The button shares the paragraph's line, so it is registered first and
+    -- claims no vertical space of its own.
+    forgetBtn = UI.Button(box, "", 120, 22, function()
+        if ns.db then ns.db.trustedRequesters = {} end
+        Layout()
+        ns.Print(L["Cleared. Everyone will be asked again from now on."])
+    end)
+    forgetBtn:SetShown(#TrustedNames() > 0)
+    AddCorner(forgetBtn, function()
+        forgetBtn:SetLabel(L["Forget them all"], 120)
+        forgetBtn.tooltipText = L["Removes every saved name, so the next request from anyone prompts you again."]
+    end)
+
+    -- 150 of right inset, because the button above sits in that corner.
+    AddNote(function()
         local names = TrustedNames()
         if #names == 0 then
-            trustedText:SetText("Nobody yet. When someone asks for your gear you can tick the box on that prompt to stop being asked again, and their name will appear here.")
-        else
-            trustedText:SetText(format("%d name%s: %s. These players get your gear without being asked each time.",
-                #names, #names == 1 and "" or "s", table.concat(names, ", ")))
+            return L["Nobody yet. When someone asks for your gear you can tick the box on that prompt to stop being asked again, and their name will appear here."]
         end
-        if forgetBtn then forgetBtn:SetShown(#names > 0) end
+        if #names == 1 then
+            return format(L["1 name: %s. This player gets your gear without being asked each time."],
+                names[1])
+        end
+        return format(L["%d names: %s. These players get your gear without being asked each time."],
+            #names, table.concat(names, ", "))
+    end, 150)
+
+    -- -----------------------------------------------------------------------
+    -- the layout pass
+    -- Creates nothing. Runs on build, whenever the tab is shown, and whenever
+    -- the language changes.
+    -- -----------------------------------------------------------------------
+    Layout = function()
+        local y = -14
+        local pendingCorner
+        for i = 1, #items do
+            local it = items[i]
+            local obj = it.obj
+
+            if it.kind == "corner" then
+                -- Parked until the next item fixes the line it belongs on.
+                if it.relabel then it.relabel() end
+                pendingCorner = obj
+            else
+                if it.gapBefore then y = y - it.gapBefore end
+                if pendingCorner then
+                    pendingCorner:ClearAllPoints()
+                    pendingCorner:SetPoint("TOPRIGHT", box, "TOPRIGHT", -SETTINGS_RIGHT, y)
+                    pendingCorner = nil
+                end
+
+                obj:ClearAllPoints()
+                obj:SetPoint("TOPLEFT", SETTINGS_LEFT, y)
+
+                if it.kind == "header" then
+                    obj:SetText(L[it.key])
+                    y = y - 22
+                elseif it.kind == "note" then
+                    obj:SetPoint("RIGHT", box, "RIGHT", -it.rightInset, 0)
+                    local s = it.text()
+                    obj:SetText(s)
+                    -- Measured, never fixed. Swedish runs longer than English
+                    -- often enough that a hard coded two line box would clip
+                    -- the third line on half of these paragraphs.
+                    y = y - UI.MeasureText(11, TextWidth(it.rightInset), s) - 10
+                else
+                    if it.relabel then it.relabel() end
+                    y = y - it.gap
+                end
+            end
+        end
+        forgetBtn:SetShown(#TrustedNames() > 0)
     end
 
-    forgetBtn = UI.Button(box, "Forget them all", 120, 22, function()
-        if ns.db then ns.db.trustedRequesters = {} end
-        RefreshTrusted()
-        ns.Print("Cleared. Everyone will be asked again from now on.")
-    end)
-    forgetBtn:SetPoint("TOPRIGHT", box, "TOPRIGHT", -14, y)
-    forgetBtn.tooltipText = "Removes every saved name, so the next request from anyone prompts you again."
-
-    RefreshTrusted()
-    box:SetScript("OnShow", RefreshTrusted)
+    Layout()
+    relabels[#relabels + 1] = Layout
+    box:SetScript("OnShow", Layout)
 
     return page
 end
@@ -672,9 +827,13 @@ local function Refresh()
     scoreBar:SetColor(report.gradeColor)
     scoreBar:SetValue(report.score / 100, true)
 
+    -- Written out in full for each count rather than bolted together from a
+    -- stem and an "s". A plural suffix is an English trick and produces
+    -- nonsense in most other languages, so the whole sentence is the string.
     local n = #report.issues
-    scoreSub:SetText(n == 0 and "No problems found"
-        or format("%d thing%s worth fixing", n, n == 1 and "" or "s"))
+    scoreSub:SetText(n == 0 and L["No problems found"]
+        or n == 1 and L["1 thing worth fixing"]
+        or format(L["%d things worth fixing"], n))
 
     chips.avgIlvl.value:SetText(format("%.1f", report.avgIlvl or 0))
     -- The number is always the true count. Below the level where enchanting is
@@ -690,8 +849,8 @@ local function Refresh()
     else
         chips.missingEnchants.value:SetTextColor(unpack(T.dim))
     end
-    chips.missingEnchants.label:SetText(enchantsMatter and "MISSING ENCHANTS"
-        or ("MISSING ENCHANTS, OK UNTIL " .. enchantThreshold))
+    chips.missingEnchants.label:SetText(enchantsMatter and L["Missing enchants"]:upper()
+        or format(L["MISSING ENCHANTS, OK UNTIL %d"], enchantThreshold))
     chips.emptySockets.value:SetText(report.counts.emptySockets)
     chips.emptySockets.value:SetTextColor(unpack(report.counts.emptySockets > 0 and T.warn or T.good))
     chips.emptySlots.value:SetText(report.counts.emptySlots)
@@ -700,10 +859,11 @@ local function Refresh()
     slotList:SetData(scan.slots, sameSubject)
     issueList:SetData(report.issues, sameSubject)
     issueEmpty:SetShown(n == 0)
-    issueCount:SetText(n .. (n == 1 and " ISSUE" or " ISSUES"))
+    issueCount:SetText(format(n == 1 and L["%d ISSUE"] or L["%d ISSUES"], n))
 
     if footerInfo then
-        footerInfo:SetText(format("Level %d %s  |  GearScout %s",
+        -- The class name is left exactly as the client spelled it.
+        footerInfo:SetText(format(L["Level %d %s  |  GearScout %s"],
             report.level or 0, (report.class or ""):lower(), ns.VERSION))
     end
 end
@@ -762,15 +922,33 @@ local function Build()
     fLine:SetPoint("TOPLEFT")
     fLine:SetPoint("TOPRIGHT")
 
-    local rescan = UI.Button(footer, "Rescan", 88, 22, function()
+    local rescan = UI.Button(footer, "", 88, 22, function()
         ns.Evaluate()
         Refresh()
     end)
     rescan:SetPoint("LEFT", 12, 0)
-    rescan.tooltipText = "Read your equipment again right now."
 
     footerInfo = UI.Font(footer, 11, T.dim, nil, "RIGHT")
     footerInfo:SetPoint("RIGHT", -14, 0)
+
+    Relabel(function()
+        rescan:SetLabel(L["Rescan"], 88)
+        rescan.tooltipText = L["Read your equipment again right now."]
+        -- Tabs are re-measured, not just re-texted, because a translated tab
+        -- name is a different width and the bar packs them end to end.
+        tabBar:SetLabels({ L["Gear"], L["Upgrades"], L["Enchants"],
+                           L["Rotation"], L["Settings"] })
+    end)
+
+    -- One subscription for the whole window. Created here, once, on the build
+    -- path. Every static label goes back through its own re-texting function,
+    -- and the gear report is rebuilt because its sentences were written in the
+    -- old language and live in the issue records rather than on screen.
+    ns:Sub("LOCALE_CHANGED", function()
+        for i = 1, #relabels do relabels[i]() end
+        if ns.SubjectIsSelf() and ns.lastScan and ns.Analyze then ns.Analyze() end
+        Refresh()
+    end)
 
     win:RestorePosition()
     return win
@@ -836,14 +1014,14 @@ ns:Sub("DB_READY", function()
             end,
             function(_, tip)
                 tip:SetText("GearScout", 1, 1, 1)
-                tip:AddLine("Left click to open the gear and rotation coach.", 0.8, 0.84, 0.9)
+                tip:AddLine(L["Left click to open the gear and rotation coach."], 0.8, 0.84, 0.9)
                 -- Checked on every hover, so the line appears the moment the
                 -- console is installed and never advertises it to a member
                 -- who does not have it.
                 if _G.GearScoutLead and _G.GearScoutLead.Toggle then
-                    tip:AddLine("Right click to open the officer console.", 0.8, 0.84, 0.9)
+                    tip:AddLine(L["Right click to open the officer console."], 0.8, 0.84, 0.9)
                 end
-                tip:AddLine("Drag to move this button.", 0.55, 0.58, 0.65)
+                tip:AddLine(L["Drag to move this button."], 0.55, 0.58, 0.65)
             end)
     end
 end)
@@ -855,17 +1033,39 @@ SlashCmdList.GEARSCOUT = function(msg)
     -- lowercasing one turns it into unusable text.
     local raw = msg or ""
     msg = raw:lower():match("^%s*(.-)%s*$")
+    -- Only the OUTPUT of these commands is translated. The words typed to
+    -- reach them stay English in every language, because a slash command that
+    -- moves when the language changes breaks every note, macro and forum post
+    -- that ever mentioned it.
     if msg == "scan" then
         local report = ns.Evaluate()
-        ns.Print(format("Score %d (%s), %d issue%s.",
-            report.score, report.grade, #report.issues, #report.issues == 1 and "" or "s"))
+        local n = #report.issues
+        ns.Print(format(n == 1 and L["Score %d (%s), %d issue."] or L["Score %d (%s), %d issues."],
+            report.score, report.grade, n))
         Refresh()
+    elseif msg == "lang" or msg:match("^lang ") then
+        local want = msg:match("^lang%s+(%S+)$")
+        if want then
+            -- Both the code and the plain name are accepted, since nobody
+            -- remembers "svSE".
+            if want == "sv" or want == "svse" or want == "svenska" or want == "swedish" then
+                want = "svSE"
+            elseif want == "en" or want == "enus" or want == "english" then
+                want = "enUS"
+            end
+            ns.db.locale = want
+            ns.SetLocale(want)
+            ns.Print(format(L["Language set to %s."], ns.locale))
+        else
+            ns.Print(format(L["Language: %s. Use /gearscout lang en or /gearscout lang sv."],
+                tostring(ns.locale)))
+        end
     elseif msg == "skin obsidian" or msg == "skin slate" then
         ns.db.skin = msg:match("skin (%a+)")
-        ns.Print("Skin set to " .. ns.db.skin .. ". Type /reload to see it.")
+        ns.Print(format(L["Skin set to %s. Type /reload to see it."], ns.db.skin))
     elseif msg == "skin" then
-        ns.Print("Current skin: " .. tostring(ns.activeSkin)
-            .. ". Use /gearscout skin obsidian or /gearscout skin slate.")
+        ns.Print(format(L["Current skin: %s. Use /gearscout skin obsidian or /gearscout skin slate."],
+            tostring(ns.activeSkin)))
     -- Deliberately manual for now. The stat weight data covers 16 of 27 specs
     -- and its own audit put it at roughly 70 percent trustworthy, so it is
     -- reachable and testable but is not yet allowed to quietly change the
@@ -875,7 +1075,7 @@ SlashCmdList.GEARSCOUT = function(msg)
         -- cheap but pointless to run on every gear change when nobody asked.
         local subject = ns.Subject()
         if not ns.FindSlotUpgrades or not subject.report then
-            ns.Print("Nothing scanned yet. Try /gearscout scan first.")
+            ns.Print(L["Nothing scanned yet. Try /gearscout scan first."])
             return
         end
         local weakest, weakestIlvl
@@ -884,80 +1084,86 @@ SlashCmdList.GEARSCOUT = function(msg)
                 weakest, weakestIlvl = rec, rec.ilvl
             end
         end
-        if not weakest then ns.Print("No equipped items to compare.") return end
+        if not weakest then ns.Print(L["No equipped items to compare."]) return end
         local list = ns.FindSlotUpgrades(weakest.slotID, weakestIlvl, 5)
+        -- The slot name is left in English on purpose, the same way it is on
+        -- the gear tab: head, cloak and main hand are what players call them.
         if #list == 0 then
-            ns.Print(format("Nothing known that beats your %s at item level %d in dungeons near your level. The loot table only covers dungeons and raids, so quest rewards will not appear here.",
+            ns.Print(format(L["Nothing known that beats your %s at item level %d in dungeons near your level. The loot table only covers dungeons and raids, so quest rewards will not appear here."],
                 (weakest.label or "slot"):lower(), weakestIlvl or 0))
         else
-            ns.Print(format("Upgrades for your %s, currently item level %d:",
+            ns.Print(format(L["Upgrades for your %s, currently item level %d:"],
                 (weakest.label or "slot"):lower(), weakestIlvl or 0))
             for _, u in ipairs(list) do
-                ns.Print(format("  %s (item level %d) from %s in %s",
+                ns.Print(format(L["  %s (item level %d) from %s in %s"],
                     u.name or ("item " .. u.itemID), u.ilvl,
-                    (u.boss and u.boss ~= "" and u.boss) or "trash", u.instance))
+                    (u.boss and u.boss ~= "" and u.boss) or L["trash"], u.instance))
             end
         end
         -- Items the client had not cached were requested rather than dropped,
         -- so saying so is more honest than presenting a partial list as final.
         if (list.pending or 0) > 0 then
-            ns.Print(format("%d more candidate%s still loading from the server. Run this again in a moment for the complete answer.",
-                list.pending, list.pending == 1 and " is" or "s are"))
+            ns.Print(format(list.pending == 1
+                    and L["1 more candidate is still loading from the server. Run this again in a moment for the complete answer."]
+                    or L["%d more candidates are still loading from the server. Run this again in a moment for the complete answer."],
+                list.pending))
         end
     elseif msg:match("^caps") then
-        if not ns.GetCapStatus then ns.Print("Item evaluation is not loaded.") return end
+        if not ns.GetCapStatus then ns.Print(L["Item evaluation is not loaded."]) return end
         local caps, confidence = ns.GetCapStatus()
         if not caps then
-            ns.Print(tostring(confidence or "No stat weight data for your class and spec yet."))
+            ns.Print(tostring(confidence or L["No stat weight data for your class and spec yet."]))
         else
-            ns.Print("Stat caps, data confidence " .. tostring(confidence) .. ":")
+            ns.Print(format(L["Stat caps, data confidence %s:"], tostring(confidence)))
             for _, c in ipairs(caps) do
+                -- c.name is a stat name, so it is left exactly as it came.
                 ns.Print(format("  %s: %s", tostring(c.name),
-                    c.met and "met" or ("NOT met, " .. tostring(c.explanation or ""))))
+                    c.met and L["met"] or format(L["NOT met, %s"], tostring(c.explanation or ""))))
             end
         end
     elseif msg:match("^score ") then
-        if not ns.CompareToEquipped then ns.Print("Item evaluation is not loaded.") return end
+        if not ns.CompareToEquipped then ns.Print(L["Item evaluation is not loaded."]) return end
         -- The raw message is used, not the lowercased one, because an item
         -- link is case sensitive and lowercasing it destroys the link.
         local link = (raw or ""):match("|c%x+|Hitem:.-|h.-|h|r")
         if not link then
-            ns.Print("Shift click an item into chat after the command, like /gearscout score [item].")
+            ns.Print(L["Shift click an item into chat after the command, like /gearscout score [item]."])
         else
             local delta, why = ns.CompareToEquipped(link)
-            ns.Print(why or (delta and format("Score difference against what you are wearing: %+.1f", delta))
-                or "No comparison available.")
+            ns.Print(why or (delta and format(L["Score difference against what you are wearing: %+.1f"], delta))
+                or L["No comparison available."])
         end
     elseif msg == "data research" or msg == "data builtin" then
         ns.db.dataSource = msg:match("data (%a+)")
         if ns.BuildProfile then ns.BuildProfile() end
-        ns.Print("Rotation data source set to " .. ns.db.dataSource
-            .. ". Run /gearscout rot to see what it resolved.")
+        ns.Print(format(L["Rotation data source set to %s. Run /gearscout rot to see what it resolved."],
+            ns.db.dataSource))
     elseif msg == "data" then
-        ns.Print("Rotation data source: " .. tostring(ns.db.dataSource or "research")
-            .. ", currently using " .. tostring(ns.GetProfileSource and ns.GetProfileSource())
-            .. ". Switch with /gearscout data research or /gearscout data builtin.")
+        ns.Print(format(L["Rotation data source: %s, currently using %s. Switch with /gearscout data research or /gearscout data builtin."],
+            tostring(ns.db.dataSource or "research"),
+            tostring(ns.GetProfileSource and ns.GetProfileSource())))
     elseif msg == "wa" or msg == "weakaura" or msg == "weakauras" then
         -- Deliberately four lines. The actual snippets are pages of Lua and a
         -- wall of code in chat is unreadable and uncopyable, so this points at
         -- the file that has them and prints the one call worth memorising.
-        ns.Print("WeakAuras: ready made import strings and copy paste snippets are in WEAKAURA.md, in the GearScout folder you downloaded.")
-        ns.Print("  Fastest way: /wa, click Import, paste the string from the top of that file.")
-        ns.Print("  Writing your own: trigger type Custom, event GEARSCOUT_BUFFS_UPDATED, then call GearScout.API.GetBuffReport()")
+        ns.Print(L["WeakAuras: ready made import strings and copy paste snippets are in WEAKAURA.md, in the GearScout folder you downloaded."])
+        ns.Print(L["  Fastest way: /wa, click Import, paste the string from the top of that file."])
+        -- The API call and the event name are code, so they never move.
+        ns.Print(L["  Writing your own: trigger type Custom, event GEARSCOUT_BUFFS_UPDATED, then call GearScout.API.GetBuffReport()"])
         local api = ns.API
         if api and api.GetMissingBuffCount then
             local n = api.GetMissingBuffCount()
-            ns.Print(format("  Missing group buffs right now: %d%s", n,
-                (IsInGroup() or IsInRaid()) and "" or " (you are not in a group, so there is nobody to ask)"))
+            ns.Print(format(L["  Missing group buffs right now: %d%s"], n,
+                (IsInGroup() or IsInRaid()) and "" or L[" (you are not in a group, so there is nobody to ask)"]))
         end
     elseif msg == "rot" or msg == "rotation" then
         -- A diagnostic that dies silently is worse than useless, so it always
         -- prints something even when the thing it is diagnosing is broken.
         if ns.PrintRotationDebug then
             local ok, err = pcall(ns.PrintRotationDebug)
-            if not ok then ns.Print("Diagnostic failed: " .. tostring(err)) end
+            if not ok then ns.Print(format(L["Diagnostic failed: %s"], tostring(err))) end
         else
-            ns.Print("The rotation module did not load at all.")
+            ns.Print(L["The rotation module did not load at all."])
         end
     else
         ns.ToggleMain()

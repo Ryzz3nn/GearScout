@@ -106,6 +106,11 @@ local format, ipairs, pairs, type, tonumber = string.format, ipairs, pairs, type
 local max, min, sort, wipe, unpack = math.max, math.min, table.sort, wipe, unpack
 
 local T, UI = ns.T, ns.UI
+local L = ns.L
+
+-- Enchant names, faction names, standing names and profession names all come
+-- from the client or from the extracted catalogue, so they are never
+-- translated: they are placed into these sentences exactly as they arrived.
 
 -- Enchanting's own profession spell, used to get the localized profession name
 -- rather than comparing against the English word. Scan.lua already resolves the
@@ -1028,8 +1033,9 @@ local function LevelGate(opt, reqLevel, level)
     if not level or reqLevel <= level then return end
     local gap = reqLevel - level
     AddGate(opt, gap <= LEVEL_SOON and GATE_SOON or GATE_FAR,
-        format("Needs level %d and you are %d, so it is %d level%s away.",
-            reqLevel, level, gap, gap == 1 and "" or "s"))
+        gap == 1
+            and format(L["Needs level %d and you are %d, so it is 1 level away."], reqLevel, level)
+            or format(L["Needs level %d and you are %d, so it is %d levels away."], reqLevel, level, gap))
 end
 
 -- Reputation is a gate even when the standing is only a few thousand points
@@ -1045,17 +1051,17 @@ local function RepGate(opt, faction, standing, rank)
     if have and have >= (rank or 9) + STANDING_BASE then
         opt.repMet = true
         opt.repMetText = haveName
-            and format("You are already %s with %s.", haveName, faction)
-            or format("You already have the standing with %s.", faction)
+            and format(L["You are already %s with %s."], haveName, faction)
+            or format(L["You already have the standing with %s."], faction)
         return
     end
 
     opt.repGate = true
     if haveName then
-        AddGate(opt, GATE_FAR, format("Costs %s standing with %s and you are %s with them.",
+        AddGate(opt, GATE_FAR, format(L["Costs %s standing with %s and you are %s with them."],
             standing, faction, haveName))
     else
-        AddGate(opt, GATE_FAR, format("Costs %s standing with %s, which has to be earned before any of it is for sale.",
+        AddGate(opt, GATE_FAR, format(L["Costs %s standing with %s, which has to be earned before any of it is for sale."],
             standing, faction))
     end
 end
@@ -1072,7 +1078,7 @@ local function ItemLevelGate(opt, reqIlvl, wornIlvl, level)
     opt.itemGate = true
     local far = level and (reqIlvl - level) > LEVEL_SOON
     AddGate(opt, far and GATE_FAR or GATE_SOON,
-        format("Only goes on an item of level %d or higher, and the one you are wearing is level %d.",
+        format(L["Only goes on an item of level %d or higher, and the one you are wearing is level %d."],
             reqIlvl, wornIlvl))
 end
 
@@ -1106,9 +1112,11 @@ local function BuildEnchantOption(id, catName, isEnchanter, wornIlvl, level)
     if info and info.text then
         opt.detail = info.text
     elseif tag then
-        opt.detail = format("The name says this one gives %s. GearScout could not get the exact numbers from the client.", TAG_WORDS[tag] or tag)
+        -- TAG_WORDS names a stat, so it is translated only where it is not one:
+        -- "a gathering profession, not a combat stat" is GearScout's own prose.
+        opt.detail = format(L["The name says this one gives %s. GearScout could not get the exact numbers from the client."], L[TAG_WORDS[tag]] or tag)
     else
-        opt.detail = "GearScout cannot tell what this one gives. The name does not say and the client would not describe it."
+        opt.detail = L["GearScout cannot tell what this one gives. The name does not say and the client would not describe it."]
     end
 
     -- Value used for the ranking. The amount only ever refines an order the
@@ -1123,43 +1131,44 @@ local function BuildEnchantOption(id, catName, isEnchanter, wornIlvl, level)
 
     if not isEnchanter then
         opt.case = CASE_OTHER
-        opt.action = "You are not an enchanter, so somebody else applies this one. Buy the materials, hand them over with the item, and tip for the work."
+        opt.action = L["You are not an enchanter, so somebody else applies this one. Buy the materials, hand them over with the item, and tip for the work."]
     elseif known then
         opt.case = CASE_SELF
-        opt.action = format("You can do this one yourself right now. Read from %s.", whereFrom or "your own recipes")
+        opt.action = format(L["You can do this one yourself right now. Read from %s."], L[whereFrom] or L["your own recipes"])
     else
         opt.case = CASE_LEARN
         local readable, readFrom = KnowledgeIsReadable()
         if readable then
-            opt.action = format("You do not know this recipe yet, according to %s. Enchanting recipes come from your trainer or from a formula that drops, is sold, or is a reputation reward.", readFrom)
+            opt.action = format(L["You do not know this recipe yet, according to %s. Enchanting recipes come from your trainer or from a formula that drops, is sold, or is a reputation reward."], L[readFrom])
         else
-            opt.action = "GearScout could not read which recipes you know. Open your enchanting window once and it will read them, along with what each one costs in materials."
+            opt.action = L["GearScout could not read which recipes you know. Open your enchanting window once and it will read them, along with what each one costs in materials."]
         end
     end
 
-    -- Materials. Only ever the real list from the player's own window.
+    -- Materials. Only ever the real list from the player's own window, and it
+    -- is the client's own reagent names, so only the label around it moves.
     local rec = recipes[name:lower()]
     if rec and rec.mats then
-        opt.mats = "Materials: " .. rec.mats
+        opt.mats = format(L["Materials: %s"], rec.mats)
     elseif known then
-        opt.mats = "Open your enchanting window once so GearScout can read what this one costs in materials."
+        opt.mats = L["Open your enchanting window once so GearScout can read what this one costs in materials."]
     elseif isEnchanter then
-        opt.mats = "GearScout only gets a material list for recipes you already know, because that is all the client will hand an addon."
+        opt.mats = L["GearScout only gets a material list for recipes you already know, because that is all the client will hand an addon."]
     else
-        opt.mats = "Ask the enchanter which materials they need. The client only tells GearScout the materials for recipes you know yourself."
+        opt.mats = L["Ask the enchanter which materials they need. The client only tells GearScout the materials for recipes you know yourself."]
     end
 
     -- Anything the client happened to print that is worth acting on.
     if opt.reqSkill then
         local rank = ns.GetEnchantingSkill()
         if rank and rank >= opt.reqSkill then
-            opt.note = format("Needs %d enchanting skill. You have %d.", opt.reqSkill, rank)
+            opt.note = format(L["Needs %d enchanting skill. You have %d."], opt.reqSkill, rank)
         elseif rank then
-            opt.note = format("Needs %d enchanting skill and you have %d, so you are %d short.",
+            opt.note = format(L["Needs %d enchanting skill and you have %d, so you are %d short."],
                 opt.reqSkill, rank, opt.reqSkill - rank)
             opt.trainToward = (opt.reqSkill - rank) <= 25
         else
-            opt.note = format("Needs %d enchanting skill.", opt.reqSkill)
+            opt.note = format(L["Needs %d enchanting skill."], opt.reqSkill)
         end
     end
     -- What actually stands in the way. A spell tooltip rarely prints a
@@ -1175,7 +1184,7 @@ end
 -- recipes, so they share one builder and differ only in who applies them.
 local function BuildItemOption(itemID, name, kind, extra, level)
     local meta = ns.GetItemMeta and ns.GetItemMeta(itemID) or nil
-    local shown = (meta and meta.name) or name or "Unknown item"
+    local shown = (meta and meta.name) or name or L["Unknown item"]
     local facts = ItemFacts(itemID)
     local detail = facts and facts.detail or nil
     local tag = TagFromText(detail or shown)
@@ -1198,9 +1207,9 @@ local function BuildItemOption(itemID, name, kind, extra, level)
     if detail then
         opt.detail = detail
     elseif meta then
-        opt.detail = "GearScout could not read what this one gives. Hover it to see the game's own tooltip."
+        opt.detail = L["GearScout could not read what this one gives. Hover it to see the game's own tooltip."]
     else
-        opt.detail = "Still loading from the server. Reopen this tab in a moment."
+        opt.detail = L["Still loading from the server. Reopen this tab in a moment."]
     end
 
     -- The level on the item itself, which is the requirement the head and
@@ -1210,13 +1219,15 @@ local function BuildItemOption(itemID, name, kind, extra, level)
     LevelGate(opt, facts and facts.level, level)
 
     if kind == KIND_REP then
-        local who = (extra and extra.faction) or "the faction"
+        local who = (extra and extra.faction) or L["the faction"]
         -- Several faction names carry their own article, and a blind prefix
-        -- turns those into "the The Sha'tar quartermaster".
-        local article = who:find("^The ") and "" or "the "
-        opt.action = format("Bought once from %s%s quartermaster at %s standing. You apply it yourself, no enchanter involved.",
-            article, who, (extra and extra.standing or "the required"):lower())
-        opt.mats = "Costs reputation and a little gold, and it never wears off."
+        -- turns those into "the The Sha'tar quartermaster". The article is
+        -- English grammar, so it is part of the translated sentence and any
+        -- language that has no equivalent simply leaves it out.
+        local article = who:find("^The ") and "" or L["the "]
+        opt.action = format(L["Bought once from %s%s quartermaster at %s standing. You apply it yourself, no enchanter involved."],
+            article, who, (extra and extra.standing or L["the required"]):lower())
+        opt.mats = L["Costs reputation and a little gold, and it never wears off."]
         opt.standing = extra and extra.standing
         opt.rank = extra and extra.rank or 9
         RepGate(opt, extra and extra.faction, extra and extra.standing, opt.rank)
@@ -1226,12 +1237,13 @@ local function BuildItemOption(itemID, name, kind, extra, level)
             opt.action = opt.repMetText .. " " .. opt.action
         end
     elseif kind == KIND_LEG then
-        opt.action = format("A %s makes this. It is an item, so you can buy one off the auction house and apply it yourself.",
-            (extra and extra.profession or "crafter"):lower())
-        opt.mats = "Buy the finished item, or bring the materials to a crafter. This one is not an enchanting job."
+        -- The profession name comes from the data, so it goes in as it is.
+        opt.action = format(L["A %s makes this. It is an item, so you can buy one off the auction house and apply it yourself."],
+            (extra and extra.profession or L["crafter"]):lower())
+        opt.mats = L["Buy the finished item, or bring the materials to a crafter. This one is not an enchanting job."]
     elseif kind == KIND_SCOPE then
-        opt.action = "An engineer makes this. It is an item, so you can buy one and attach it yourself."
-        opt.mats = "Buy the finished scope, or ask an engineer. This one is not an enchanting job."
+        opt.action = L["An engineer makes this. It is an item, so you can buy one and attach it yourself."]
+        opt.mats = L["Buy the finished scope, or ask an engineer. This one is not an enchanting job."]
     end
 
     return opt
@@ -1289,22 +1301,22 @@ local function GateSummary(rows, level)
 
     local parts = {}
     if minLevel then
-        local who = (levelRows == n) and "Every one of these needs" or format("%d of these need", levelRows)
+        local who = (levelRows == n) and L["Every one of these needs"] or format(L["%d of these need"], levelRows)
         parts[#parts + 1] = level
-            and format("%s level %d or higher, and you are %d.", who, minLevel, level)
-            or format("%s level %d or higher.", who, minLevel)
+            and format(L["%s level %d or higher, and you are %d."], who, minLevel, level)
+            or format(L["%s level %d or higher."], who, minLevel)
     end
     if repRows > 0 then
         parts[#parts + 1] = (repRows == n)
-            and "They are bought with faction standing, which is a grind worth planning before you start rather than something you pick up on the way past."
-            or format("%d of them are bought with faction standing.", repRows)
+            and L["They are bought with faction standing, which is a grind worth planning before you start rather than something you pick up on the way past."]
+            or format(L["%d of them are bought with faction standing."], repRows)
     end
     if itemRows > 0 then
         -- "also" only earns its place when there is a sentence before it.
-        local also = (#parts > 0) and "also " or ""
+        local also = (#parts > 0) and L["also "] or ""
         parts[#parts + 1] = (itemRows == n)
-            and format("They %swant a better item in this slot than the one you are wearing.", also)
-            or format("%d of them %swant a better item in this slot than the one you are wearing.", itemRows, also)
+            and format(L["They %swant a better item in this slot than the one you are wearing."], also)
+            or format(L["%d of them %swant a better item in this slot than the one you are wearing."], itemRows, also)
     end
     if #parts == 0 then return nil end
     return table.concat(parts, " ")
@@ -1350,17 +1362,17 @@ function ns.GetEnchantPlan(slotID)
     }
 
     if not rec or rec.empty then
-        plan.note = "Nothing is equipped here, so there is nothing to enchant yet."
+        plan.note = L["Nothing is equipped here, so there is nothing to enchant yet."]
         planCache[slotID] = plan
         return plan
     end
     if not plan.enchantable then
         if def.ench == "enchanter" then
-            plan.note = "Only an enchanter can enchant a ring, and this character is not one. It is the one enchant nobody can do for you."
+            plan.note = L["Only an enchanter can enchant a ring, and this character is not one. It is the one enchant nobody can do for you."]
         elseif def.ench == "ranged" then
-            plan.note = "A scope only fits a bow, a gun or a crossbow. What is in this slot cannot take one."
+            plan.note = L["A scope only fits a bow, a gun or a crossbow. What is in this slot cannot take one."]
         else
-            plan.note = "This slot does not take a permanent enchant in this version of the game."
+            plan.note = L["This slot does not take a permanent enchant in this version of the game."]
         end
         planCache[slotID] = plan
         return plan
@@ -1425,7 +1437,7 @@ function ns.GetEnchantPlan(slotID)
         -- this era, so the shorter list is not the whole answer. Saying which
         -- category was read stops that looking like missing data.
         if key == "2H Weapon" then
-            plan.categoryNote = "You are holding a two hander, so these are the two hand weapon enchants."
+            plan.categoryNote = L["You are holding a two hander, so these are the two hand weapon enchants."]
         end
     end
 
@@ -1505,8 +1517,8 @@ function ns.GetEnchantPlan(slotID)
     -- panel, rather than left for the player to work out from three headings.
     if plan.usableTotal == 0 and plan.gatedTotal > 0 then
         plan.gateNote = level
-            and format("Nothing on this list is usable at level %d yet. Everything below says what it is waiting on.", level)
-            or "Nothing on this list is usable yet. Everything below says what it is waiting on."
+            and format(L["Nothing on this list is usable at level %d yet. Everything below says what it is waiting on."], level)
+            or L["Nothing on this list is usable yet. Everything below says what it is waiting on."]
     end
 
     planCache[slotID] = plan
@@ -1693,23 +1705,23 @@ end
 local function SlotStatus(slotID)
     local scan = ns.lastScan
     local rec = scan and scan.bySlotID and scan.bySlotID[slotID]
-    if not rec or rec.empty then return "Nothing equipped", T.dim end
-    if not rec.enchantable then return "Takes no enchant", T.dim end
-    if rec.enchanted then return "Already enchanted", T.good end
+    if not rec or rec.empty then return L["Nothing equipped"], T.dim end
+    if not rec.enchantable then return L["Takes no enchant"], T.dim end
+    if rec.enchanted then return L["Already enchanted"], T.good end
 
     local plan = ns.PeekEnchantPlan(slotID)
-    if plan and plan.bestNow then return "You can do this one now", T.good end
+    if plan and plan.bestNow then return L["You can do this one now"], T.good end
     -- Everything this slot offers is out of reach. Said before the source lines
     -- below, because "bought with reputation" reads as a plan and this is not
     -- one yet.
     if plan and plan.usableTotal == 0 and (plan.gatedTotal or 0) > 0 then
-        return "Nothing in reach yet", T.dim
+        return L["Nothing in reach yet"], T.dim
     end
-    if plan and plan.kind == KIND_REP then return "Bought with reputation", T.accent end
-    if plan and plan.kind == KIND_LEG then return "Leatherworker or tailor", T.accent end
-    if plan and plan.kind == KIND_SCOPE then return "Engineer fits a scope", T.accent end
-    if plan and plan.best then return "Bare, recipe not known", T.warn end
-    return "Bare", T.warn
+    if plan and plan.kind == KIND_REP then return L["Bought with reputation"], T.accent end
+    if plan and plan.kind == KIND_LEG then return L["Leatherworker or tailor"], T.accent end
+    if plan and plan.kind == KIND_SCOPE then return L["Engineer fits a scope"], T.accent end
+    if plan and plan.best then return L["Bare, recipe not known"], T.warn end
+    return L["Bare"], T.warn
 end
 
 -- ---------------------------------------------------------------------------
@@ -2101,13 +2113,13 @@ local function ShowWorn(plan)
     wornSlotLine:SetText((plan and plan.label) or "Slot")
 
     if rec and not rec.empty then
-        wornLine:SetText(format("%s, item level %d", rec.name or "Unknown item", rec.ilvl or 0))
+        wornLine:SetText(format(L["%s, item level %d"], rec.name or L["Unknown item"], rec.ilvl or 0))
         wornLine:SetTextColor(QualityColor(rec.quality))
         wornIcon:SetTexture(rec.icon or SlotArt(plan.slotID))
         wornIcon:SetAlpha(1)
         wornIconEdge:SetColorTexture(QualityColor(rec.quality))
     else
-        wornLine:SetText("Nothing equipped here right now.")
+        wornLine:SetText(L["Nothing equipped here right now."])
         wornLine:SetTextColor(unpack(T.dim))
         wornIcon:SetTexture(SlotArt(plan and plan.slotID))
         wornIcon:SetAlpha(0.5)
@@ -2129,17 +2141,20 @@ local function BasisText()
     local role, roleConfidence = nil, "none"
     if ns.GetSpecRole then role, roleConfidence = ns.GetSpecRole() end
 
+    -- The spec name is the client's own talent tab name, so it goes in
+    -- untouched. The role word is one of tank, healer, melee, ranged or
+    -- caster, which Swedish players say in English too.
     if HaveResearchedWeights() and (confidence == "high" or confidence == "medium") then
-        return format("Ranked with GearScout's researched stat weights for %s.", specName or "your spec")
+        return format(L["Ranked with GearScout's researched stat weights for %s."], specName or L["your spec"])
     end
     if HaveResearchedWeights() then
-        return format("Your talents are too thin to name a spec, so this is ranked with the weights for %s and is a guide rather than an answer. Every option for this slot is listed below, not just the top one.",
-            specName or "the tree you have most points in")
+        return format(L["Your talents are too thin to name a spec, so this is ranked with the weights for %s and is a guide rather than an answer. Every option for this slot is listed below, not just the top one."],
+            specName or L["the tree you have most points in"])
     end
     if role and (roleConfidence == "high" or roleConfidence == "medium") then
-        return format("GearScout has no researched stat weights for your spec, so this is ranked by what a %s generally wants. That is a preference, not research.", role)
+        return format(L["GearScout has no researched stat weights for your spec, so this is ranked by what a %s generally wants. That is a preference, not research."], role)
     end
-    return "GearScout has neither researched stat weights for your spec nor a confident read on your role, so this ordering is a rough one. Read the options rather than trusting the order."
+    return L["GearScout has neither researched stat weights for your spec nor a confident read on your role, so this ordering is a rough one. Read the options rather than trusting the order."]
 end
 
 -- One heading row. Built here rather than in the plan because it is a piece of
@@ -2200,7 +2215,7 @@ ShowSlot = function(slotID)
         elseif plan.categoryNote then
             parts[#parts + 1] = plan.categoryNote
         elseif plan.enchanted then
-            parts[#parts + 1] = "There is already an enchant on this one. GearScout cannot read which enchant it is, only that something is on there, so check the item tooltip before paying for a replacement."
+            parts[#parts + 1] = L["There is already an enchant on this one. GearScout cannot read which enchant it is, only that something is on there, so check the item tooltip before paying for a replacement."]
         end
         if #parts > 0 then note = table.concat(parts, " ") end
     end
@@ -2222,8 +2237,8 @@ ShowSlot = function(slotID)
     local usableShown = #plan.options + #plan.unranked
 
     if grouped and usableShown > 0 then
-        rows[#rows + 1] = HeaderRow("YOU CAN USE THESE NOW",
-            "Nothing readable stands between you and any of these.", "good",
+        rows[#rows + 1] = HeaderRow(L["YOU CAN USE THESE NOW"],
+            L["Nothing readable stands between you and any of these."], "good",
             usableShown, plan.usableTotal)
     end
     for i = 1, #plan.options do rows[#rows + 1] = plan.options[i] end
@@ -2235,37 +2250,37 @@ ShowSlot = function(slotID)
     -- where nothing was stat ranked in the first place.
     if #plan.unranked > 0 and plan.kind ~= KIND_REP then
         local first = plan.unranked[1]
-        first.matsText = format("%s  |  This one and the %d below it have names that do not say what they do, so GearScout will not pretend to rank them.",
+        first.matsText = format(L["%s  |  This one and the %d below it have names that do not say what they do, so GearScout will not pretend to rank them."],
             first.mats or "", max(0, #plan.unranked - 1))
     end
 
     if #plan.soon > 0 then
-        rows[#rows + 1] = HeaderRow("NOT YET, BUT CLOSE",
-            plan.soonNote or "A little more character or a little more gear and these open up.",
+        rows[#rows + 1] = HeaderRow(L["NOT YET, BUT CLOSE"],
+            plan.soonNote or L["A little more character or a little more gear and these open up."],
             "warn", #plan.soon, plan.soonTotal)
         for i = 1, #plan.soon do rows[#rows + 1] = plan.soon[i] end
     end
 
     if #plan.far > 0 then
-        rows[#rows + 1] = HeaderRow("A LONG WAY OFF",
-            plan.farNote or "These are here so you know they exist, not because they are worth planning around today.",
+        rows[#rows + 1] = HeaderRow(L["A LONG WAY OFF"],
+            plan.farNote or L["These are here so you know they exist, not because they are worth planning around today."],
             "dim", #plan.far, plan.farTotal)
         for i = 1, #plan.far do rows[#rows + 1] = plan.far[i] end
     end
 
     if plan.kind ~= KIND_ENCHANT then
-        optionHeader:SetText("WHAT GOES ON THIS SLOT")
+        optionHeader:SetText(L["WHAT GOES ON THIS SLOT"])
     else
-        optionHeader:SetText(grouped and "WHAT TO PUT ON THIS SLOT, WHAT YOU CAN USE FIRST"
-            or "WHAT TO PUT ON THIS SLOT, BEST FIRST")
+        optionHeader:SetText(grouped and L["WHAT TO PUT ON THIS SLOT, WHAT YOU CAN USE FIRST"]
+            or L["WHAT TO PUT ON THIS SLOT, BEST FIRST"])
     end
 
     optionList:SetData(rows, sameSlot)
     optionEmpty:SetShown(#rows == 0)
     if #rows == 0 then
         optionEmpty:SetText(plan.note
-            and "Nothing to choose here."
-            or "GearScout has no enchant data for this slot.")
+            and L["Nothing to choose here."]
+            or L["GearScout has no enchant data for this slot."])
     end
 
     slotList:Refresh()
@@ -2275,44 +2290,51 @@ RefreshBanner = function()
     if not banner then return end
     local sum = ns.GetEnchantSummary()
 
+    -- Every count gets a whole sentence of its own rather than a stem with an
+    -- "s" or a "ve" bolted onto it. That trick is English grammar and it does
+    -- not survive translation into anything.
     local parts = {}
     if sum.isEnchanter then
         if sum.rank then
-            parts[#parts + 1] = format("Enchanting %d%s, read from %s.",
-                sum.rank,
-                sum.maxRank and format(" of %d", sum.maxRank) or "",
-                sum.rankSource or "the client")
+            parts[#parts + 1] = sum.maxRank
+                and format(L["Enchanting %d of %d, read from %s."],
+                    sum.rank, sum.maxRank, L[sum.rankSource] or L["the client"])
+                or format(L["Enchanting %d, read from %s."],
+                    sum.rank, L[sum.rankSource] or L["the client"])
         else
-            parts[#parts + 1] = "You are an enchanter. GearScout could not read your skill number on this client, so it will not guess one."
+            parts[#parts + 1] = L["You are an enchanter. GearScout could not read your skill number on this client, so it will not guess one."]
         end
         if sum.recipesSeen then
-            parts[#parts + 1] = format("It knows %d of your recipes and what they cost, read from your enchanting window.", sum.recipeCount)
+            parts[#parts + 1] = format(L["It knows %d of your recipes and what they cost, read from your enchanting window."], sum.recipeCount)
         else
-            parts[#parts + 1] = "Open your enchanting window once and GearScout will read which recipes you know and what each one costs in materials."
+            parts[#parts + 1] = L["Open your enchanting window once and GearScout will read which recipes you know and what each one costs in materials."]
         end
     else
-        parts[#parts + 1] = "You are not an enchanter, so every enchant here is somebody else's work. What you can do is buy the materials and hand them over with the item."
+        parts[#parts + 1] = L["You are not an enchanter, so every enchant here is somebody else's work. What you can do is buy the materials and hand them over with the item."]
     end
 
     if sum.bare > 0 then
         if sum.canDoNow > 0 then
-            parts[#parts + 1] = format("%d of your %d bare slot%s ha%s an enchant you already know how to apply.",
-                sum.canDoNow, sum.bare, sum.bare == 1 and "" or "s", sum.canDoNow == 1 and "s" or "ve")
+            parts[#parts + 1] = sum.bare == 1
+                and format(L["%d of your 1 bare slot has an enchant you already know how to apply."], sum.canDoNow)
+                or format(L["%d of your %d bare slots have an enchant you already know how to apply."], sum.canDoNow, sum.bare)
         else
-            parts[#parts + 1] = format("%d slot%s carrying no enchant.", sum.bare, sum.bare == 1 and " is" or "s are")
+            parts[#parts + 1] = sum.bare == 1
+                and L["1 slot is carrying no enchant."]
+                or format(L["%d slots are carrying no enchant."], sum.bare)
         end
         -- Said out loud so an empty looking slot list is not read as missing
         -- data. Head and shoulder are reputation bought at level 70 in this
         -- era, so a levelling character genuinely has nothing to do about them.
         if sum.locked > 0 then
             parts[#parts + 1] = sum.level
-                and format("%d of those ha%s nothing in reach at level %d, and each one says what it is waiting on.",
-                    sum.locked, sum.locked == 1 and "s" or "ve", sum.level)
-                or format("%d of those ha%s nothing in reach yet, and each one says what it is waiting on.",
-                    sum.locked, sum.locked == 1 and "s" or "ve")
+                and format(L["%d of those have nothing in reach at level %d, and each one says what it is waiting on."],
+                    sum.locked, sum.level)
+                or format(L["%d of those have nothing in reach yet, and each one says what it is waiting on."],
+                    sum.locked)
         end
     else
-        parts[#parts + 1] = "Every slot that can take an enchant already has one."
+        parts[#parts + 1] = L["Every slot that can take an enchant already has one."]
     end
 
     bannerLine:SetText(table.concat(parts, " "))
@@ -2336,7 +2358,6 @@ function ns.BuildEnchantsPage(page)
 
     bannerTitle = UI.Font(banner, 10, T.dim, nil, "LEFT")
     bannerTitle:SetPoint("TOPLEFT", 14, -8)
-    bannerTitle:SetText("YOUR ENCHANTING")
 
     -- No fixed height. RefreshBanner measures the same text to size the panel
     -- around it, so a long sentence is never clipped.
@@ -2352,7 +2373,6 @@ function ns.BuildEnchantsPage(page)
 
     local lh = UI.Font(left, 10, T.dim, nil, "LEFT")
     lh:SetPoint("TOPLEFT", 12, -10)
-    lh:SetText("GEAR SLOTS")
 
     local sep = UI.Divider(left)
     sep:SetPoint("TOPLEFT", 10, -26)
@@ -2407,7 +2427,15 @@ function ns.BuildEnchantsPage(page)
 
     optionHeader = UI.Font(rightPanel, 10, T.dim, nil, "LEFT")
     optionHeader:SetPoint("TOPLEFT", 14, -62)
-    optionHeader:SetText("WHAT TO PUT ON THIS SLOT, BEST FIRST")
+
+    -- The fixed headings on this page. ShowSlot rewrites optionHeader from the
+    -- slot it is drawing, so it only needs a starting value here.
+    local function ApplyLocale()
+        bannerTitle:SetText(L["YOUR ENCHANTING"])
+        lh:SetText(L["GEAR SLOTS"])
+        optionHeader:SetText(L["WHAT TO PUT ON THIS SLOT, BEST FIRST"])
+    end
+    ApplyLocale()
 
     -- Variable height rows. OPT_ROW_MIN is only the shortest a row can be,
     -- which is a section heading rather than an option, and it is used purely
@@ -2427,6 +2455,16 @@ function ns.BuildEnchantsPage(page)
         RefreshBanner()
         ShowSlot(selectedSlotID)
     end
+
+    ns:Sub("LOCALE_CHANGED", function()
+        if not enchPage then return end
+        ApplyLocale()
+        -- Every plan holds sentences built in the old language, so they are
+        -- thrown away and rebuilt rather than merely redrawn.
+        InvalidatePlans()
+        Redraw()
+        slotList:Refresh()
+    end)
 
     -- ITEM_CACHE_UPDATED is deliberately not subscribed here. It already
     -- reaches this page through the debounced ENCHANT_DATA_UPDATED above, and

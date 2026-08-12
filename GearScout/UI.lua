@@ -248,6 +248,15 @@ function UI.Button(parent, text, w, h, onClick)
     b:SetScript("OnMouseDown", function(self) self.label:SetPoint("CENTER", 0, -1) end)
     b:SetScript("OnMouseUp", function(self) self.label:SetPoint("CENTER", 0, 0) end)
     if onClick then b:SetScript("OnClick", onClick) end
+
+    -- Re-texts an existing button and widens it if the new caption needs more
+    -- room. Buttons are placed by their own anchors, so growing one is safe,
+    -- and a translated caption is regularly wider than the English it
+    -- replaced. Never called from a draw path.
+    function b:SetLabel(text, minWidth)
+        self.label:SetText(text)
+        self:SetWidth(max(minWidth or w or 90, self.label:GetStringWidth() + 20))
+    end
     return b
 end
 
@@ -273,6 +282,13 @@ function UI.CheckBox(parent, text, get, set)
     label:SetPoint("LEFT", box, "RIGHT", 8, 0)
     label:SetText(text)
     b:SetWidth(label:GetStringWidth() + 26)
+
+    -- The clickable area is sized from the caption, so re-texting one has to
+    -- re-measure it or half the new label stops responding to the mouse.
+    function b:SetLabel(newText)
+        label:SetText(newText)
+        self:SetWidth(label:GetStringWidth() + 26)
+    end
 
     function b:Refresh()
         tick:SetShown(get() and true or false)
@@ -327,6 +343,10 @@ function UI.Select(parent, width, options, get, set)
     UI.Border(menu, T.lineHard)
     menu:Hide()
 
+    -- Kept so the rows can be re-texted later. The menu is built once, here,
+    -- and never rebuilt.
+    b.optionTexts = {}
+
     for i, opt in ipairs(options) do
         local row = CreateFrame("Button", nil, menu)
         row:SetHeight(20)
@@ -335,9 +355,14 @@ function UI.Select(parent, width, options, get, set)
         local hl = UI.Tex(row, "BACKGROUND", T.hover)
         hl:SetAllPoints()
         hl:Hide()
+        -- Left anchor only, deliberately. The row is a fixed 20px tall, so a
+        -- second anchor would let a long caption wrap inside it and overlap
+        -- the row below. A caption is expected to be short enough to fit the
+        -- select's width in every language.
         local txt = UI.Font(row, 12, T.text, nil, "LEFT")
         txt:SetPoint("LEFT", 6, 0)
         txt:SetText(opt.text)
+        b.optionTexts[i] = txt
         row:SetScript("OnEnter", function() hl:Show() end)
         row:SetScript("OnLeave", function() hl:Hide() end)
         row:SetScript("OnClick", function()
@@ -345,6 +370,19 @@ function UI.Select(parent, width, options, get, set)
             menu:Hide()
             b:Refresh()
         end)
+    end
+
+    -- New captions for the same values, in the order the options were given.
+    -- Used when the language changes: the values never move, only the words
+    -- describing them, so nothing here touches get or set.
+    function b:SetOptionTexts(texts)
+        for i, opt in ipairs(options) do
+            if texts[i] then
+                opt.text = texts[i]
+                self.optionTexts[i]:SetText(texts[i])
+            end
+        end
+        self:Refresh()
     end
 
     function b:Refresh()
@@ -664,6 +702,24 @@ function UI.TabBar(parent, tabs, onSelect)
         bar.buttons[i] = t
     end
     bar:SetWidth(x)
+
+    -- Re-texts the tabs and lays the bar out again from the new label widths.
+    -- Only ever called when the language changes, which is not an update path:
+    -- nothing is created here, the existing buttons and font strings are
+    -- re-used. Laying out again is the point rather than a nicety, because a
+    -- translated word is rarely the same width as the one it replaced and a
+    -- fixed tab width would clip it.
+    function bar:SetLabels(names)
+        local w = 0
+        for i, t in ipairs(self.buttons) do
+            if names[i] then t.label:SetText(names[i]) end
+            t:ClearAllPoints()
+            t:SetPoint("BOTTOMLEFT", w, 0)
+            t:SetWidth(max(70, t.label:GetStringWidth() + 28))
+            w = w + t:GetWidth()
+        end
+        self:SetWidth(w)
+    end
 
     function bar:Select(i)
         self.selected = i

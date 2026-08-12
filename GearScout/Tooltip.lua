@@ -132,7 +132,9 @@ local function Decorate(tooltip)
         -- move would drown the player in red text.
         if failures >= 3 then
             disabled = true
-            ns.Print("Tooltip additions turned off after repeated errors: " .. tostring(err))
+            -- The error text itself is left as Lua produced it.
+            ns.Print(string.format(ns.L["Tooltip additions turned off after repeated errors: %s"],
+                tostring(err)))
         end
     end
 end

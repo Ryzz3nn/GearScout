@@ -2,13 +2,14 @@
 ## Title: GearScout
 ## Notes: Audits your gear and rotation, tells you what to fix, and answers gear queries from your raid lead.
 ## Author: Ryzz3nn
-## Version: 0.13.0
+## Version: 0.14.0
 ## SavedVariables: GearScoutDB, GearScoutData
 ## SavedVariablesPerCharacter: GearScoutCharDB
 ## OptionalDeps: Details, TradeSkillMaster
 ## X-Category: Interface Enhancements
 
 Core.lua
+Locale.lua
 Skin.lua
 UI.lua
 

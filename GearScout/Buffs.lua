@@ -63,6 +63,7 @@ local InCombatLockdown, GetTime = InCombatLockdown, GetTime
 local C_Timer = C_Timer
 local ipairs, pairs, next, wipe, pcall = ipairs, pairs, next, wipe, pcall
 local format, sort, concat = string.format, table.sort, table.concat
+local L = ns.L
 
 -- ---------------------------------------------------------------------------
 -- what a buff hands you
@@ -884,8 +885,8 @@ local function JoinNames(list)
     local n = #list
     if n == 0 then return "" end
     if n == 1 then return list[1] end
-    if n == 2 then return list[1] .. " and " .. list[2] end
-    return concat(list, ", ", 1, n - 1) .. " and " .. list[n]
+    if n == 2 then return list[1] .. L[" and "] .. list[2] end
+    return concat(list, ", ", 1, n - 1) .. L[" and "] .. list[n]
 end
 
 -- Formats the result as a single issue suitable for either the gear list or a
@@ -910,32 +911,37 @@ function ns.GetBuffIssue()
     for n in pairs(sources) do people[#people + 1] = n end
     sort(people)
 
+    -- m.label is the spell's own name as the client spells it, and m.from is a
+    -- player name. Both go into the sentence exactly as they arrived; only the
+    -- words around them move. m.why is GearScout's own one line explanation
+    -- and is translated.
     local detail
     if #missing == 1 then
         local m = missing[1]
         if m.isSelf then
-            detail = format("You can put %s on yourself right now. %s", m.label, m.why)
+            detail = format(L["You can put %s on yourself right now. %s"], m.label, L[m.why])
         else
-            detail = format("%s is in your group and can give you %s. %s", m.from, m.label, m.why)
+            detail = format(L["%s is in your group and can give you %s. %s"], m.from, m.label, L[m.why])
         end
     else
-        detail = format("Your group can give you %d buffs you do not have: %s.",
+        detail = format(L["Your group can give you %d buffs you do not have: %s."],
             #missing, concat(names, ", "))
     end
 
-    local tail = "Buffs are free, they last a long time, and they are the cheapest power you will ever get."
+    local tail = L["Buffs are free, they last a long time, and they are the cheapest power you will ever get."]
     local fix
     if #people == 0 then
-        fix = "Cast them on yourself. " .. tail
+        fix = L["Cast them on yourself."] .. " " .. tail
     elseif ownWork then
-        fix = format("Ask %s for them, and cast the rest on yourself. %s", JoinNames(people), tail)
+        fix = format(L["Ask %s for them, and cast the rest on yourself. %s"], JoinNames(people), tail)
     else
-        fix = format("Ask %s for them. %s", JoinNames(people), tail)
+        fix = format(L["Ask %s for them. %s"], JoinNames(people), tail)
     end
 
     return {
         sev    = ns.SEVERITY.WARN,
-        title  = format("You are missing %d group buff%s", #missing, #missing == 1 and "" or "s"),
+        title  = #missing == 1 and L["You are missing 1 group buff"]
+                 or format(L["You are missing %d group buffs"], #missing),
         detail = detail,
         fix    = fix,
         count  = #missing,

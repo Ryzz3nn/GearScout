@@ -21,6 +21,7 @@ local GetTime, time = GetTime, time
 local UnitGUID, UnitHealthMax = UnitGUID, UnitHealthMax
 local GetRealZoneText = GetRealZoneText
 local format, ipairs, pairs = string.format, ipairs, pairs
+local L = ns.L
 local max, min, floor = math.max, math.min, math.floor
 local tinsert, wipe = table.insert, wipe
 
@@ -220,11 +221,13 @@ function Deaths.HandleCombatLog(subevent, sourceName, spellName, amount, destGUI
     if type(amount) ~= "number" then return end
     if destGUID ~= UnitGUID("player") then return end
 
+    -- sourceName is whatever the client called the thing that hit you, so it
+    -- is kept. Only GearScout's own fallback labels move.
     local label = sourceName
     if subevent == "ENVIRONMENTAL_DAMAGE" then
-        label = ENV_LABEL[environmentalType] or "Environmental damage"
+        label = L[ENV_LABEL[environmentalType]] or L["Environmental damage"]
     end
-    label = label or "Unknown"
+    label = label or L["Unknown"]
 
     local pct
     local ok, maxHealth = pcall(UnitHealthMax, "player")
@@ -250,7 +253,7 @@ ns:On("PLAYER_DEAD", function()
         if h.pct then pctSum = pctSum + h.pct end
     end
 
-    local zone = "an unknown zone"
+    local zone = L["an unknown zone"]
     local okZone, z = pcall(GetRealZoneText)
     if okZone and z and z ~= "" then zone = z end
 
@@ -312,43 +315,44 @@ function ns.GetDeathIssue()
     if repeatKiller and repeatCount >= 2 then
         return {
             sev    = SEV.WARN,
-            title  = format("You have died to %s %d times", repeatKiller, repeatCount),
-            detail = format("Out of your last %d deaths, %s alone accounts for %d of them. That is a pattern, not bad luck.",
+            title  = format(L["You have died to %s %d times"], repeatKiller, repeatCount),
+            detail = format(L["Out of your last %d deaths, %s alone accounts for %d of them. That is a pattern, not bad luck."],
                              lookback, repeatKiller, repeatCount),
-            fix    = "Before you fight it again, bring more health consumables, ask for help, or look up what makes that particular enemy dangerous.",
+            fix    = L["Before you fight it again, bring more health consumables, ask for help, or look up what makes that particular enemy dangerous."],
         }
     end
 
     if last.hadHealingItem then
         return {
             sev    = SEV.WARN,
-            title  = "You died with a healing item still in your bags",
-            detail = format("When %s killed you, you still had a healing potion or bandage on you. It was never used.", last.killer),
-            fix    = "Keybind your healing potion or bandage and use it around half health, not after the fight has already gone wrong.",
+            title  = L["You died with a healing item still in your bags"],
+            detail = format(L["When %s killed you, you still had a healing potion or bandage on you. It was never used."], last.killer),
+            fix    = L["Keybind your healing potion or bandage and use it around half health, not after the fight has already gone wrong."],
         }
     end
 
     if last.defensiveAvailable then
         return {
             sev    = SEV.WARN,
-            title  = format("%s was available when you died", last.defensiveAvailable),
-            detail = format("Your %s was off cooldown when %s killed you, so it was ready to be used.", last.defensiveAvailable, last.killer),
-            fix    = "Use a defensive cooldown earlier, around half health, rather than waiting to see if you will need it.",
+            title  = format(L["%s was available when you died"], last.defensiveAvailable),
+            detail = format(L["Your %s was off cooldown when %s killed you, so it was ready to be used."], last.defensiveAvailable, last.killer),
+            fix    = L["Use a defensive cooldown earlier, around half health, rather than waiting to see if you will need it."],
         }
     end
 
-    local survivedText = last.survived and format(" You lasted about %s.", ns.FmtTime(last.survived)) or ""
+    local survivedText = last.survived and format(L[" You lasted about %s."], ns.FmtTime(last.survived)) or ""
     local pctText = ""
     if last.hitsPct and last.hitsPct > 0 and last.hitsCount and last.hitsCount > 0 then
-        pctText = format(" Your last %d hit%s took roughly %d percent of your health.",
-            last.hitsCount, last.hitsCount == 1 and "" or "s",
-            ns.Round(ns.Clamp(last.hitsPct, 0, 1) * 100))
+        local pct = ns.Round(ns.Clamp(last.hitsPct, 0, 1) * 100)
+        pctText = last.hitsCount == 1
+            and format(L[" Your last hit took roughly %d percent of your health."], pct)
+            or format(L[" Your last %d hits took roughly %d percent of your health."], last.hitsCount, pct)
     end
 
     return {
         sev    = SEV.INFO,
-        title  = format("You last died to %s", last.killer),
-        detail = format("This happened in %s.%s%s", last.zone or "an unknown zone", survivedText, pctText),
-        fix    = "Nothing to fix yet. GearScout will start pointing out patterns once it has seen a few more deaths.",
+        title  = format(L["You last died to %s"], last.killer),
+        detail = format(L["This happened in %s.%s%s"], last.zone or L["an unknown zone"], survivedText, pctText),
+        fix    = L["Nothing to fix yet. GearScout will start pointing out patterns once it has seen a few more deaths."],
     }
 end

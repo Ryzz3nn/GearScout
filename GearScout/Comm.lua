@@ -271,6 +271,10 @@ local function AcceptAndSend(nonce, sender)
     end)
 end
 
+-- The wording lives in the popup table rather than being passed in, so it is
+-- written once here and rewritten whenever the language changes. The decline
+-- reasons above are deliberately NOT translated: they travel over the wire to
+-- whoever asked, and that person is not necessarily reading Swedish.
 StaticPopupDialogs["GEARSCOUT_SHARE_REQUEST"] = {
     text = "%s wants to see your gear through GearScout. Share it?",
     button1 = "Share",
@@ -305,6 +309,22 @@ StaticPopupDialogs["GEARSCOUT_SHARE_REQUEST"] = {
     showAlert = true,
     preferredIndex = 3,
 }
+
+-- Rewritten in place rather than replaced, because the client holds a
+-- reference to this exact table. Runs once when the saved variables arrive and
+-- again on every language change, and never while the popup is on screen doing
+-- anything, so it creates nothing and touches no frame.
+local function LocalisePopup()
+    local L = ns.L
+    local p = StaticPopupDialogs["GEARSCOUT_SHARE_REQUEST"]
+    p.text    = L["%s wants to see your gear through GearScout. Share it?"]
+    p.button1 = L["Share"]
+    p.button2 = L["Decline"]
+    p.button3 = L["Always share with them"]
+end
+
+ns:Sub("DB_READY", LocalisePopup)
+ns:Sub("LOCALE_CHANGED", LocalisePopup)
 
 -- ---------------------------------------------------------------------------
 -- responder

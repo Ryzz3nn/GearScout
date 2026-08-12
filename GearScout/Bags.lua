@@ -10,6 +10,7 @@
 local ADDON, ns = ...
 
 local ipairs, type = ipairs, type
+local L = ns.L
 local format = string.format
 local GetItemInfo = GetItemInfo
 local GetItemInfoInstant = GetItemInfoInstant
@@ -376,12 +377,12 @@ end
 local function GainPhrase(top)
     if top.gainKind == "score" then
         if (top.equippedScore or 0) <= 0 then
-            return "you have nothing equipped in that slot at all"
+            return L["you have nothing equipped in that slot at all"]
         end
-        return format("its stats are worth about %d%% more to your spec than what you have on",
+        return format(L["its stats are worth about %d%% more to your spec than what you have on"],
                       ns.Round(top.gain or 0))
     end
-    return format("it is item level %d against the item level %d you have on now",
+    return format(L["it is item level %d against the item level %d you have on now"],
                   top.ilvl or 0, top.equippedIlvl or 0)
 end
 
@@ -391,28 +392,36 @@ function ns.GetBagUpgradeIssue()
 
     local top = upgrades[1]
     local def = ns.SLOT_BY_ID[top.slotID]
+    -- Slot name in English, the same as everywhere else. Item names come from
+    -- the client and are dropped into the sentence exactly as they arrived.
     local slotName = (top.slotLabel or "slot"):lower()
     local title, detail, fix
 
     if #upgrades == 1 then
-        title = "You are carrying an upgrade for your " .. slotName .. " in your bags"
-        detail = format("%s is worth putting on: %s.",
-                         top.name or "This item", GainPhrase(top))
-        fix = "Open your bags, right click " .. (top.name or "the item") .. ", and put it on."
+        title = format(L["You are carrying an upgrade for your %s in your bags"], slotName)
+        detail = format(L["%s is worth putting on: %s."],
+                         top.name or L["This item"], GainPhrase(top))
+        fix = top.name
+            and format(L["Open your bags, right click %s, and put it on."], top.name)
+            or L["Open your bags, right click the item, and put it on."]
         if top.bank then
-            fix = fix .. " It is in your bank, so you need to be at the bank to reach it."
+            fix = fix .. L[" It is in your bank, so you need to be at the bank to reach it."]
         end
     else
         local restCount = #upgrades - 1
-        title = format("You are carrying %d upgrades in your bags", #upgrades)
-        detail = format("The best one is %s for your %s: %s. There %s %d more upgrade%s sitting in your bags.",
-                         top.name or "an item", slotName, GainPhrase(top),
-                         restCount == 1 and "is" or "are", restCount, restCount == 1 and "" or "s")
-        fix = format("Start with %s for your %s. Open your bags and right click it to equip it.",
-                      top.name or "the best one", slotName)
+        title = format(L["You are carrying %d upgrades in your bags"], #upgrades)
+        -- One whole sentence per count. Counting words are not a suffix that
+        -- can be glued on in every language.
+        detail = restCount == 1
+            and format(L["The best one is %s for your %s: %s. There is 1 more upgrade sitting in your bags."],
+                       top.name or L["an item"], slotName, GainPhrase(top))
+            or format(L["The best one is %s for your %s: %s. There are %d more upgrades sitting in your bags."],
+                       top.name or L["an item"], slotName, GainPhrase(top), restCount)
+        fix = format(L["Start with %s for your %s. Open your bags and right click it to equip it."],
+                      top.name or L["the best one"], slotName)
         for _, it in ipairs(upgrades) do
             if it.bank then
-                fix = fix .. " Some of these are in your bank, so you need to be there to reach all of them."
+                fix = fix .. L[" Some of these are in your bank, so you need to be there to reach all of them."]
                 break
             end
         end

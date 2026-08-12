@@ -8,7 +8,18 @@
 local ADDON, ns = ...
 
 local SEV = ns.SEVERITY
+local L = ns.L
 local ipairs, pairs, format, max, min = ipairs, pairs, string.format, math.max, math.min
+
+-- Every sentence below is written in English and looked up through L at the
+-- moment it is built, never when the table holding it is defined, because the
+-- tables here are built once at load and the player can change language at
+-- any point after that.
+--
+-- Equipment slot names, class names, stat names and armor weights stay in
+-- English in every language. Swedish players say head, cloak, main hand,
+-- warrior, agility and plate, and translating them would also drag gender
+-- agreement into every generated sentence that names one.
 
 -- ---------------------------------------------------------------------------
 -- score weights
@@ -146,7 +157,10 @@ local UPGRADE_SOURCES = {
 
 function ns.UpgradeAdvice(level)
     for _, row in ipairs(UPGRADE_SOURCES) do
-        if level >= row[1] and level <= row[2] then return row[3] end
+        -- Dungeon and zone names inside these lines are left as they are: the
+        -- client names them, and a player looking for Scarlet Monastery on
+        -- their own map needs to read the same words GearScout used.
+        if level >= row[1] and level <= row[2] then return L[row[3]] end
     end
     return nil
 end
@@ -179,9 +193,9 @@ local function JoinList(names)
     if n <= 3 then
         local head = {}
         for i = 1, n - 1 do head[#head + 1] = names[i] end
-        return table.concat(head, ", ") .. " and " .. names[n]
+        return table.concat(head, ", ") .. L[" and "] .. names[n]
     end
-    return format("%s, %s, %s and %d more", names[1], names[2], names[3], n - 3)
+    return format(L["%s, %s, %s and %d more"], names[1], names[2], names[3], n - 3)
 end
 
 -- Slot names for a group of same-rule entries, in equipped slot order so the
@@ -227,7 +241,7 @@ function ns.Analyze(scan)
     local issues = {}
     local penalty = 0
     local level = scan.level or 1
-    local className = CLASS_NAME[scan.class] or "character"
+    local className = CLASS_NAME[scan.class] or L["character"]
     local junkSet = JUNK[scan.class]
     local expectFloor = ExpectedIlvl(level)
     local slack = (ns.db and ns.db.ilvlSlack) or 12
@@ -256,11 +270,11 @@ function ns.Analyze(scan)
                 penalty = penalty + W.emptySlot
                 groups.emptySlot[#groups.emptySlot + 1] = {
                     rec = rec, slotName = slotName, penalty = W.emptySlot,
-                    title  = "You are wearing nothing on your " .. slotName,
-                    detail = "This slot is completely empty, so it gives you no armor and no stats at all.",
+                    title  = format(L["You are wearing nothing on your %s"], slotName),
+                    detail = L["This slot is completely empty, so it gives you no armor and no stats at all."],
                     fix    = level < 40
-                        and "Put anything in it. Look in your bags first, then any town vendor. At your level a plain green costs silver, not gold."
-                        or "Put anything in it. Even a cheap auction house item beats an empty slot. Check your bags first, you may already own something.",
+                        and L["Put anything in it. Look in your bags first, then any town vendor. At your level a plain green costs silver, not gold."]
+                        or L["Put anything in it. Even a cheap auction house item beats an empty slot. Check your bags first, you may already own something."],
                 }
             end
         else
@@ -279,15 +293,17 @@ function ns.Analyze(scan)
                 penalty = penalty + W.missingEnch
                 groups.missingEnch[#groups.missingEnch + 1] = {
                     rec = rec, slotName = slotName, penalty = W.missingEnch,
-                    title  = "No enchant on your " .. slotName,
-                    detail = "An enchant is a permanent bonus added on top of an item. This one has none, so you are missing free stats.",
+                    title  = format(L["No enchant on your %s"], slotName),
+                    detail = L["An enchant is a permanent bonus added on top of an item. This one has none, so you are missing free stats."],
                     -- Head and shoulder enchants come from reputation, and the
                     -- extracted catalogue knows exactly which factions sell
                     -- them and at what standing. Where it can answer, its
-                    -- specific line replaces the vague one below.
+                    -- specific line replaces the vague one below. That answer
+                    -- names a faction and a standing the client supplies, so
+                    -- it is left in the client's own words.
                     fix    = (ns.DescribeEnchantSource and ns.DescribeEnchantSource(rec.slotID))
-                             or ENCHANT_SOURCE[rec.slotID]
-                             or "Ask an enchanter to add a permanent enchant to this slot.",
+                             or L[ENCHANT_SOURCE[rec.slotID]]
+                             or L["Ask an enchanter to add a permanent enchant to this slot."],
                 }
             end
 
@@ -296,14 +312,21 @@ function ns.Analyze(scan)
                 counts.emptySockets = counts.emptySockets + rec.emptySockets
                 local p = W.emptySocket * rec.emptySockets
                 penalty = penalty + p
+                -- One complete sentence per count rather than a stem plus an
+                -- "s". English pluralises by suffix, most languages do not.
+                local socketTitle
+                if rec.emptySockets == 1 then
+                    socketTitle = format(L["1 empty gem slot on your %s"], slotName)
+                else
+                    socketTitle = format(L["%d empty gem slots on your %s"], rec.emptySockets, slotName)
+                end
                 groups.emptySocket[#groups.emptySocket + 1] = {
                     rec = rec, slotName = slotName, penalty = p,
                     emptySockets = rec.emptySockets, sockets = rec.sockets or 0, gemsFilled = rec.gemsFilled or 0,
-                    title  = format("%d empty gem slot%s on your %s", rec.emptySockets,
-                                     rec.emptySockets == 1 and "" or "s", slotName),
-                    detail = format("This item has %d gem holes and only %d of them have a gem in. Empty holes give you nothing.",
+                    title  = socketTitle,
+                    detail = format(L["This item has %d gem holes and only %d of them have a gem in. Empty holes give you nothing."],
                                      rec.sockets or 0, rec.gemsFilled or 0),
-                    fix    = "Gems drop in dungeons and sell for a few silver at the auction house. Right click a gem, then click the item, and it snaps in. Even the cheapest gem beats an empty hole.",
+                    fix    = L["Gems drop in dungeons and sell for a few silver at the auction house. Right click a gem, then click the item, and it snaps in. Even the cheapest gem beats an empty hole."],
                 }
             end
 
@@ -313,13 +336,13 @@ function ns.Analyze(scan)
                and rec.subClassID < scan.wantArmor and level >= 40 then
                 penalty = penalty + W.wrongArmor
                 Add(issues, SEV.CRITICAL, rec,
-                    format("Your %s is the wrong kind of armor", slotName),
-                    format("You are wearing %s here, but from level 40 a %s can wear %s, which has far more armor on it.",
-                           ns.ARMOR_NAMES[rec.subClassID] or "light armor",
+                    format(L["Your %s is the wrong kind of armor"], slotName),
+                    format(L["You are wearing %s here, but from level 40 a %s can wear %s, which has far more armor on it."],
+                           ns.ARMOR_NAMES[rec.subClassID] or L["light armor"],
                            className,
-                           ns.ARMOR_NAMES[scan.wantArmor] or "heavier armor"),
-                    format("Look for %s instead. You are giving away a large amount of protection for nothing.",
-                           ns.ARMOR_NAMES[scan.wantArmor] or "your armor type"),
+                           ns.ARMOR_NAMES[scan.wantArmor] or L["heavier armor"]),
+                    format(L["Look for %s instead. You are giving away a large amount of protection for nothing."],
+                           ns.ARMOR_NAMES[scan.wantArmor] or L["your armor type"]),
                     W.wrongArmor)
             end
 
@@ -328,10 +351,10 @@ function ns.Analyze(scan)
                 penalty = penalty + W.lowQuality
                 groups.lowQuality[#groups.lowQuality + 1] = {
                     rec = rec, slotName = slotName, penalty = W.lowQuality,
-                    title  = format("Your %s is a low quality item", slotName),
-                    detail = format("%s is a green or white item and you are level %d. Items are colour coded, and green is the second weakest tier.",
-                                     rec.name or "This item", level),
-                    fix    = "Blue items from normal and heroic dungeons are a large step up and cost nothing but time. Crafted gear and reputation rewards work too.",
+                    title  = format(L["Your %s is a low quality item"], slotName),
+                    detail = format(L["%s is a green or white item and you are level %d. Items are colour coded, and green is the second weakest tier."],
+                                     rec.name or L["This item"], level),
+                    fix    = L["Blue items from normal and heroic dungeons are a large step up and cost nothing but time. Crafted gear and reputation rewards work too."],
                 }
 
             -- much worse than everything else you own
@@ -342,29 +365,40 @@ function ns.Analyze(scan)
                 -- Naming a real drop is worth far more than "go upgrade it".
                 -- Bounded and cached, and it only runs for the weak link,
                 -- never for every slot.
-                local fix = "Because it is so far behind everything else, replacing this one piece helps you more than upgrading anything else right now."
+                local fix = L["Because it is so far behind everything else, replacing this one piece helps you more than upgrading anything else right now."]
                 if ns.FindSlotUpgrades then
                     local ok, drops = pcall(ns.FindSlotUpgrades, rec.slotID, rec.ilvl or 0, 2)
                     if ok and drops and #drops > 0 then
                         local first = drops[1]
+                        -- Boss, dungeon and item names come from the loot data
+                        -- and from the client, so they are placed into the
+                        -- sentence untouched.
                         local where = (first.boss and first.boss ~= "" and first.boss ~= "Trash")
-                            and format("%s in %s", first.boss, first.instance)
+                            and format(L["%s in %s"], first.boss, first.instance)
                             or first.instance
+                        -- Four templates rather than one with an article
+                        -- glued on. "the" in front of an item name is English
+                        -- grammar and has no equivalent to paste in elsewhere,
+                        -- so each case is a whole sentence of its own.
                         if #drops > 1 then
-                            fix = format("%s drops %s at item level %d, and GearScout knows of %d more for this slot at your level.",
-                                where, first.name and ("the " .. first.name) or "an upgrade",
-                                first.ilvl, #drops - 1)
+                            fix = first.name
+                                and format(L["%s drops the %s at item level %d, and GearScout knows of %d more for this slot at your level."],
+                                    where, first.name, first.ilvl, #drops - 1)
+                                or format(L["%s drops an upgrade at item level %d, and GearScout knows of %d more for this slot at your level."],
+                                    where, first.ilvl, #drops - 1)
                         else
-                            fix = format("%s drops %s at item level %d, which would replace this.",
-                                where, first.name and ("the " .. first.name) or "an upgrade",
-                                first.ilvl)
+                            fix = first.name
+                                and format(L["%s drops the %s at item level %d, which would replace this."],
+                                    where, first.name, first.ilvl)
+                                or format(L["%s drops an upgrade at item level %d, which would replace this."],
+                                    where, first.ilvl)
                         end
                     end
                 end
 
                 Add(issues, SEV.WARN, rec,
-                    format("Your %s is the weakest thing you are wearing", slotName),
-                    format("Item level is a simple power number printed on every item. This one is %d, while the rest of your gear averages %d.",
+                    format(L["Your %s is the weakest thing you are wearing"], slotName),
+                    format(L["Item level is a simple power number printed on every item. This one is %d, while the rest of your gear averages %d."],
                            rec.ilvl or 0, ns.Round(scan.medianIlvl)),
                     fix,
                     W.weakLink)
@@ -374,10 +408,10 @@ function ns.Analyze(scan)
                 penalty = penalty + W.outdated
                 groups.outdated[#groups.outdated + 1] = {
                     rec = rec, slotName = slotName, penalty = W.outdated, ilvl = rec.ilvl,
-                    title  = format("Your %s is out of date", slotName),
-                    detail = format("It is item level %d. At level %d you should be wearing something around item level %d.",
+                    title  = format(L["Your %s is out of date"], slotName),
+                    detail = format(L["It is item level %d. At level %d you should be wearing something around item level %d."],
                                      rec.ilvl, level, expectFloor),
-                    fix    = "Almost any quest reward or dungeon drop in the zone you are questing in right now will be better than this.",
+                    fix    = L["Almost any quest reward or dungeon drop in the zone you are questing in right now will be better than this."],
                 }
             end
 
@@ -396,12 +430,15 @@ function ns.Analyze(scan)
                         groups.junkStats[#groups.junkStats + 1] = {
                             rec = rec, slotName = slotName, penalty = W.junkStats,
                             statLabel = STAT_LABEL[worst] or worst,
-                            title  = format("Your %s has stats a %s cannot use", slotName, className),
-                            detail = format("It gives %s %d. A %s gets no benefit at all from %s, so that part of the item is doing nothing for you.",
+                            title  = format(L["Your %s has stats a %s cannot use"], slotName, className),
+                            detail = format(L["It gives %s %d. A %s gets no benefit at all from %s, so that part of the item is doing nothing for you."],
                                              STAT_LABEL[worst] or worst, worstVal, className,
                                              (STAT_LABEL[worst] or worst):lower()),
-                            fix    = format("Not urgent on its own. It does mean that when you find a piece with %s on it, that piece will be a clear upgrade.",
-                                             WANT_INSTEAD[scan.class] or "your class stats"),
+                            -- The stat list is a run of client stat names with
+                            -- one connective word between them, so the whole
+                            -- phrase is translated but every name in it is not.
+                            fix    = format(L["Not urgent on its own. It does mean that when you find a piece with %s on it, that piece will be a clear upgrade."],
+                                             L[WANT_INSTEAD[scan.class]] or L["your class stats"]),
                         }
                     end
                 end
@@ -411,19 +448,19 @@ function ns.Analyze(scan)
             if rec.durability and rec.durability <= 0.05 then
                 penalty = penalty + W.broken
                 Add(issues, SEV.CRITICAL, rec,
-                    format("Your %s is broken", slotName),
-                    format("Durability is at %d percent. A broken item gives zero armor and zero stats until it is fixed.",
+                    format(L["Your %s is broken"], slotName),
+                    format(L["Durability is at %d percent. A broken item gives zero armor and zero stats until it is fixed."],
                            ns.Round(rec.durability * 100)),
-                    "Visit any repair vendor, the ones with a small anvil icon on the map, and click the repair all button.",
+                    L["Visit any repair vendor, the ones with a small anvil icon on the map, and click the repair all button."],
                     W.broken)
             end
 
             -- temporary weapon buff hides the real answer
             if rec.tempEnchant then
                 Add(issues, SEV.INFO, rec,
-                    format("Cannot check the enchant on your %s right now", slotName),
-                    "A temporary buff such as a sharpening stone, an oil or a poison is on this weapon, and it hides the permanent enchant underneath.",
-                    "Nothing to do. GearScout will check this slot again once the temporary buff wears off.",
+                    format(L["Cannot check the enchant on your %s right now"], slotName),
+                    L["A temporary buff such as a sharpening stone, an oil or a poison is on this weapon, and it hides the permanent enchant underneath."],
+                    L["Nothing to do. GearScout will check this slot again once the temporary buff wears off."],
                     0)
             end
         end
@@ -436,11 +473,11 @@ function ns.Analyze(scan)
     if #groups.emptySlot > 0 and not EmitGroupSingle(issues, groups.emptySlot, SEV.CRITICAL) then
         local names = GroupSlotNames(groups.emptySlot)
         Add(issues, SEV.CRITICAL, nil,
-            format("You are wearing nothing on %d slots: %s", #groups.emptySlot, JoinList(names)),
-            "These slots are completely empty, so together they give you no armor and no stats at all.",
+            format(L["You are wearing nothing on %d slots: %s"], #groups.emptySlot, JoinList(names)),
+            L["These slots are completely empty, so together they give you no armor and no stats at all."],
             level < 40
-                and "Put anything in each of them. Look in your bags first, then any town vendor. At your level plain greens cost silver, not gold."
-                or "Put anything in each of them. Even a cheap auction house item beats an empty slot. Check your bags first, you may already own some of these.",
+                and L["Put anything in each of them. Look in your bags first, then any town vendor. At your level plain greens cost silver, not gold."]
+                or L["Put anything in each of them. Even a cheap auction house item beats an empty slot. Check your bags first, you may already own some of these."],
             GroupPenalty(groups.emptySlot))
     end
 
@@ -460,13 +497,13 @@ function ns.Analyze(scan)
         local restNames = {}
         for i = 2, #ranked do restNames[#restNames + 1] = ranked[i].slotName end
         Add(issues, SEV.WARN, nil,
-            format("No enchant on %d slots: %s", #groups.missingEnch, JoinList(names)),
-            "An enchant is a permanent bonus added on top of an item. None of these have one, so you are missing free stats on every one of them.",
-            format("Start with your %s: %s%s", top.slotName,
+            format(L["No enchant on %d slots: %s"], #groups.missingEnch, JoinList(names)),
+            L["An enchant is a permanent bonus added on top of an item. None of these have one, so you are missing free stats on every one of them."],
+            format(L["Start with your %s: %s%s"], top.slotName,
                    (ns.DescribeEnchantSource and top.rec and ns.DescribeEnchantSource(top.rec.slotID))
-                   or ENCHANT_SOURCE[top.rec and top.rec.slotID]
-                   or "Ask an enchanter to add a permanent enchant to this slot.",
-                   #restNames > 0 and (" Then do the rest when you can afford it: " .. JoinList(restNames) .. ".") or ""),
+                   or L[ENCHANT_SOURCE[top.rec and top.rec.slotID]]
+                   or L["Ask an enchanter to add a permanent enchant to this slot."],
+                   #restNames > 0 and format(L[" Then do the rest when you can afford it: %s."], JoinList(restNames)) or ""),
             GroupPenalty(groups.missingEnch))
     end
 
@@ -479,20 +516,21 @@ function ns.Analyze(scan)
             totalFilled = totalFilled + it.gemsFilled
         end
         Add(issues, SEV.WARN, nil,
-            format("%d empty gem slot%s across %d items: %s", totalEmpty, totalEmpty == 1 and "" or "s",
-                   #groups.emptySocket, JoinList(names)),
-            format("These items have %d gem holes between them and only %d of them have a gem in. Empty holes give you nothing.",
+            totalEmpty == 1
+                and format(L["1 empty gem slot across %d items: %s"], #groups.emptySocket, JoinList(names))
+                or format(L["%d empty gem slots across %d items: %s"], totalEmpty, #groups.emptySocket, JoinList(names)),
+            format(L["These items have %d gem holes between them and only %d of them have a gem in. Empty holes give you nothing."],
                    totalSockets, totalFilled),
-            "Gems drop in dungeons and sell for a few silver at the auction house. Right click a gem, then click the item, and it snaps in. Even the cheapest gem beats an empty hole.",
+            L["Gems drop in dungeons and sell for a few silver at the auction house. Right click a gem, then click the item, and it snaps in. Even the cheapest gem beats an empty hole."],
             GroupPenalty(groups.emptySocket))
     end
 
     if #groups.lowQuality > 0 and not EmitGroupSingle(issues, groups.lowQuality, SEV.WARN) then
         local names = GroupSlotNames(groups.lowQuality)
         Add(issues, SEV.WARN, nil,
-            format("%d of your items are low quality: %s", #groups.lowQuality, JoinList(names)),
-            format("These are green or white items and you are level %d. Green is the second weakest quality tier.", level),
-            "Blue items from normal and heroic dungeons are a large step up and cost nothing but time. Crafted gear and reputation rewards work too.",
+            format(L["%d of your items are low quality: %s"], #groups.lowQuality, JoinList(names)),
+            format(L["These are green or white items and you are level %d. Green is the second weakest quality tier."], level),
+            L["Blue items from normal and heroic dungeons are a large step up and cost nothing but time. Crafted gear and reputation rewards work too."],
             GroupPenalty(groups.lowQuality))
     end
 
@@ -504,10 +542,10 @@ function ns.Analyze(scan)
             if not maxIlvl or it.ilvl > maxIlvl then maxIlvl = it.ilvl end
         end
         Add(issues, SEV.WARN, nil,
-            format("%d of your items are out of date: %s", #groups.outdated, JoinList(names)),
-            format("Their item levels run from %d to %d. At level %d you should be wearing something around item level %d.",
+            format(L["%d of your items are out of date: %s"], #groups.outdated, JoinList(names)),
+            format(L["Their item levels run from %d to %d. At level %d you should be wearing something around item level %d."],
                    minIlvl, maxIlvl, level, expectFloor),
-            "Almost any quest reward or dungeon drop in the zone you are questing in right now will be better than these.",
+            L["Almost any quest reward or dungeon drop in the zone you are questing in right now will be better than these."],
             GroupPenalty(groups.outdated))
     end
 
@@ -521,11 +559,11 @@ function ns.Analyze(scan)
             end
         end
         Add(issues, SEV.INFO, nil,
-            format("%d of your items have stats a %s cannot use: %s", #groups.junkStats, className, JoinList(names)),
-            format("Between them these items give %s. A %s gets no benefit from any of that, so that part of each item is doing nothing for you.",
+            format(L["%d of your items have stats a %s cannot use: %s"], #groups.junkStats, className, JoinList(names)),
+            format(L["Between them these items give %s. A %s gets no benefit from any of that, so that part of each item is doing nothing for you."],
                    JoinList(statNames), className),
-            format("Not urgent on its own. It does mean that when you find pieces with %s on them, those pieces will be a clear upgrade.",
-                   WANT_INSTEAD[scan.class] or "your class stats"),
+            format(L["Not urgent on its own. It does mean that when you find pieces with %s on them, those pieces will be a clear upgrade."],
+                   L[WANT_INSTEAD[scan.class]] or L["your class stats"]),
             GroupPenalty(groups.junkStats))
     end
 
@@ -535,9 +573,9 @@ function ns.Analyze(scan)
         if ranged and ranged.empty then
             penalty = penalty + W.emptySlot
             Add(issues, SEV.CRITICAL, ranged,
-                "You have no bow, gun or crossbow",
-                "A hunter does most of their damage at range. With this slot empty, your auto shot and every shot ability are unusable.",
-                "Equip a ranged weapon right now. Any vendor in a starting town sells a basic one for silver.",
+                L["You have no bow, gun or crossbow"],
+                L["A hunter does most of their damage at range. With this slot empty, your auto shot and every shot ability are unusable."],
+                L["Equip a ranged weapon right now. Any vendor in a starting town sells a basic one for silver."],
                 W.emptySlot)
         end
     end
@@ -546,18 +584,18 @@ function ns.Analyze(scan)
     -- list of complaints into something a new player can act on today.
     if level >= 10 and level < ENCHANT_WORTH_IT then
         Add(issues, SEV.INFO, nil,
-            "Enchants and gems are being skipped on purpose",
-            format("At level %d your gear gets replaced every few levels, so an enchant bought now is thrown away almost immediately.", level),
-            format("Spend the gold on bags, riding skill and your class trainer instead. GearScout starts checking enchants at level %d, when Outland gear lasts long enough to deserve one.", ENCHANT_WORTH_IT),
+            L["Enchants and gems are being skipped on purpose"],
+            format(L["At level %d your gear gets replaced every few levels, so an enchant bought now is thrown away almost immediately."], level),
+            format(L["Spend the gold on bags, riding skill and your class trainer instead. GearScout starts checking enchants at level %d, when Outland gear lasts long enough to deserve one."], ENCHANT_WORTH_IT),
             0)
     end
 
     local upgrade = ns.UpgradeAdvice(level)
     if upgrade then
         Add(issues, SEV.INFO, nil,
-            format("Where your next upgrades come from at level %d", level),
+            format(L["Where your next upgrades come from at level %d"], level),
             upgrade,
-            "Item level is the number GearScout compares. Anything with a higher one is an upgrade for that slot.",
+            L["Item level is the number GearScout compares. Anything with a higher one is an upgrade for that slot."],
             0)
     end
 
