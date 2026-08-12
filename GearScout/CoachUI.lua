@@ -210,6 +210,30 @@ end
 -- ---------------------------------------------------------------------------
 -- issue list
 -- ---------------------------------------------------------------------------
+-- Paperdoll art for a slot with nothing worn in it. Standard client asset
+-- names; if a client build ever renames one the texture just fails to render,
+-- it does not error, so this degrades to no icon rather than breaking the row.
+local SLOT_ART = {
+    [1]  = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Head",
+    [2]  = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Neck",
+    [3]  = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Shoulder",
+    [15] = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Back",
+    [5]  = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Chest",
+    [9]  = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Wrist",
+    [10] = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Hands",
+    [6]  = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Waist",
+    [7]  = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Legs",
+    [8]  = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Feet",
+    [11] = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Finger",
+    [12] = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Finger",
+    [13] = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Trinket",
+    [14] = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Trinket",
+    [16] = "Interface\\PaperDoll\\UI-PaperDoll-Slot-MainHand",
+    [17] = "Interface\\PaperDoll\\UI-PaperDoll-Slot-SecondaryHand",
+    [18] = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Ranged",
+}
+ns.SLOT_ART = SLOT_ART
+
 local function CreateIssueRow(list)
     local row = CreateFrame("Button", nil, list)
 
@@ -223,14 +247,25 @@ local function CreateIssueRow(list)
     row.stripe:SetPoint("BOTTOMLEFT", 0, 4)
     row.stripe:SetWidth(2)
 
+    -- Created once here, only ever re-textured in UpdateIssueRow. This list is
+    -- pooled and scrolled, so a texture created per update would leak one per
+    -- scroll event.
+    row.icon = row:CreateTexture(nil, "ARTWORK")
+    row.icon:SetSize(18, 18)
+    row.icon:SetPoint("TOPLEFT", 6, -5)
+    row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+    -- Text starts 24px in (18px icon plus the same 6px gap CreateSlotRow uses)
+    -- instead of the old 12px, whether or not this particular row ends up
+    -- showing an icon, so rows never jump around as the list scrolls.
     row.title = UI.Font(row, 12, T.text, nil, "LEFT")
-    row.title:SetPoint("TOPLEFT", 12, -6)
+    row.title:SetPoint("TOPLEFT", 30, -6)
     row.title:SetPoint("RIGHT", -10, 0)
 
     -- what is actually true, in numbers. Merged rows keep this short, so it
     -- only needs room for about one line.
     row.detail = UI.Font(row, 11, T.dim, nil, "LEFT")
-    row.detail:SetPoint("TOPLEFT", 12, -19)
+    row.detail:SetPoint("TOPLEFT", 30, -19)
     row.detail:SetPoint("RIGHT", -10, 0)
     row.detail:SetHeight(15)
     row.detail:SetJustifyV("TOP")
@@ -238,7 +273,7 @@ local function CreateIssueRow(list)
     -- what to do about it. This is the line most likely to wrap onto a
     -- second line, so it gets most of the row's remaining height.
     row.fix = UI.Font(row, 11, T.accent, nil, "LEFT")
-    row.fix:SetPoint("TOPLEFT", 12, -35)
+    row.fix:SetPoint("TOPLEFT", 30, -35)
     row.fix:SetPoint("RIGHT", -10, 0)
     row.fix:SetHeight(33)
     row.fix:SetJustifyV("TOP")
@@ -267,6 +302,21 @@ local function UpdateIssueRow(row, issue)
     row.title:SetText(issue.title)
     row.detail:SetText(issue.detail or "")
     row.fix:SetText(issue.fix or "")
+
+    -- A specific item wins first, since that is the more useful picture. An
+    -- item not yet cached by the client just shows nothing; SCAN_UPDATED
+    -- redraws this list once the scan itself catches the item, and
+    -- ITEM_CACHE_UPDATED is not subscribed here because a stale icon on an
+    -- issue row is harmless, unlike a missing one.
+    if issue.icon then
+        row.icon:SetTexture(issue.icon)
+        row.icon:Show()
+    elseif issue.slotID and SLOT_ART[issue.slotID] then
+        row.icon:SetTexture(SLOT_ART[issue.slotID])
+        row.icon:Show()
+    else
+        row.icon:Hide()
+    end
 end
 
 -- ---------------------------------------------------------------------------

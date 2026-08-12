@@ -383,7 +383,10 @@ function global:Install-GearScoutPackage {
 # ---------------------------------------------------------------------------
 function global:New-DesktopUpdaterShortcut {
     param(
-        [Parameter(Mandatory)][string]$LauncherPath,
+        # Deliberately NOT mandatory. A mandatory parameter throws during
+        # binding, before this function's own error handling can run, which
+        # turned a missing shortcut path into a reported install failure.
+        [string]$LauncherPath,
         [string]$InstallerSourceDir,
         [string]$PersistRoot,
         [string]$DesktopPath

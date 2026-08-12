@@ -81,6 +81,21 @@ $Script:ManualCandidateSeq = 0
 # ---------------------------------------------------------------------------
 function global:Get-SelectedCandidate { return $Script:SelectedCandidate }
 function global:Get-SourceInfo { return $Script:SourceInfo }
+
+# Same reason as the two above, and it was learned the hard way a third time.
+# Reading $Script:LauncherSelf directly inside a GetNewClosure handler handed
+# back a frozen, empty snapshot, and because the consumer declared the
+# parameter mandatory that empty string failed to bind and reported the whole
+# install as failed. Anything a handler needs gets read through a function.
+function global:Get-LauncherPath {
+    if (-not [string]::IsNullOrWhiteSpace($Script:LauncherSelf)) {
+        return $Script:LauncherSelf
+    }
+    # Last resort, recompute rather than hand back nothing.
+    if ($env:GSI_SELF) { return $env:GSI_SELF }
+    if ($Script:AppDir) { return (Join-Path $Script:AppDir 'GearScoutInstaller.cmd') }
+    return ''
+}
 function global:Select-CandidateByIndex {
     param([int]$Index)
     if ($Index -ge 0 -and $Index -lt $Script:Candidates.Count) {
@@ -502,9 +517,23 @@ function global:Initialize-MainWindow {
             # only if the player actually asked for it. A shortcut problem
             # is reported here but never turns this red: the addon being
             # installed is what matters, see New-DesktopUpdaterShortcut.
+            # The call itself is wrapped, not just the function's insides. A
+            # mandatory parameter that fails to bind throws BEFORE the function
+            # body runs, so its own error handling never gets a chance. That is
+            # exactly what happened: an empty launcher path turned a successful
+            # install into "Install failed", over a shortcut.
             if (-not $hasError -and $shortcutCheckBox.IsChecked) {
-                $shortcutResult = New-DesktopUpdaterShortcut -LauncherPath $Script:LauncherSelf -InstallerSourceDir $Script:AppDir
-                $lines.Add($shortcutResult.Message)
+                try {
+                    $launcher = Get-LauncherPath
+                    if ([string]::IsNullOrWhiteSpace($launcher)) {
+                        $lines.Add('Installed. Could not add a desktop shortcut because the launcher could not be located, which is harmless.')
+                    } else {
+                        $shortcutResult = New-DesktopUpdaterShortcut -LauncherPath $launcher -InstallerSourceDir $Script:AppDir
+                        $lines.Add($shortcutResult.Message)
+                    }
+                } catch {
+                    $lines.Add('Installed. The desktop shortcut could not be created: ' + $_.Exception.Message)
+                }
             }
 
             $statusText.Text = [string]::Join("`n", $lines.ToArray())

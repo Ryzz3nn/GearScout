@@ -95,6 +95,25 @@ local SOURCE_LABEL = {
     reputation = "REPUTATION",
 }
 
+-- Grouped by what it costs the player, not by whether gold changes hands.
+-- Reputation gets its own group because it is a different order of
+-- commitment: a level 30 is not going to farm a faction to revered, and
+-- listing that beside a boss they could kill tonight makes a multi week
+-- grind read like an evening's plan.
+local EFFORT_TIER = {
+    bag        = 1,
+    quest      = 2,
+    boss       = 3,
+    reputation = 4,
+}
+
+local TIER_HEADING = {
+    [1] = "ALREADY YOURS, no effort at all",
+    [2] = "QUEST REWARDS, already in your log",
+    [3] = "DROPS, one run at your level",
+    [4] = "REPUTATION, a grind worth planning before you start",
+}
+
 -- ---------------------------------------------------------------------------
 -- tier 1, can this character equip it at all
 -- Required level is checked directly, since IsEquippableItem does not judge
@@ -458,11 +477,32 @@ local function EvaluateSlot(slotID)
     -- Bag items surface first, since they cost nothing more to get. Inside
     -- each group, the biggest genuine improvement sorts first, not the
     -- biggest item level number, matching the rest of the task's rules.
+    -- Cheapest effort first, so the top of the list is always the thing they
+    -- could do soonest. Within a tier, the biggest genuine improvement wins,
+    -- not the biggest item level number.
     table.sort(result.earned, function(a, b)
-        local aBag, bBag = a.source.kind == "bag", b.source.kind == "bag"
-        if aBag ~= bBag then return aBag end
+        local aTier = EFFORT_TIER[a.source and a.source.kind] or 9
+        local bTier = EFFORT_TIER[b.source and b.source.kind] or 9
+        if aTier ~= bTier then return aTier < bTier end
         return (a.delta or a.gain or 0) > (b.delta or b.gain or 0)
     end)
+
+    -- Section headers are inserted as ordinary rows. The list is pooled and
+    -- fixed height, so a header is just a row drawn differently rather than a
+    -- second widget type, and an empty tier simply never gets a heading.
+    local grouped, lastTier = {}, nil
+    for _, row in ipairs(result.earned) do
+        local tier = EFFORT_TIER[row.source and row.source.kind] or 9
+        if tier ~= lastTier then
+            grouped[#grouped + 1] = {
+                isHeader = true,
+                label = TIER_HEADING[tier] or "OTHER",
+            }
+            lastTier = tier
+        end
+        grouped[#grouped + 1] = row
+    end
+    result.earned = grouped
     table.sort(result.bought, function(a, b)
         return (a.delta or a.gain or 0) > (b.delta or b.gain or 0)
     end)
@@ -567,21 +607,32 @@ local function CreateUpgradeRow(list)
     row.stripe:SetPoint("BOTTOMLEFT", 0, 4)
     row.stripe:SetWidth(2)
 
+    -- Created once, only ever re-textured in FillUpgradeRowText. Both the
+    -- earned and bought lists are pooled the same way CoachUI's slot list is,
+    -- so a texture created inside the update path would leak one per scroll.
+    row.icon = row:CreateTexture(nil, "ARTWORK")
+    row.icon:SetSize(18, 18)
+    row.icon:SetPoint("TOPLEFT", 6, -4)
+    row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+    -- Text starts 24px in (18px icon plus the same 6px gap CreateSlotRow
+    -- uses) instead of the old 12px, whether or not the item's icon has
+    -- resolved yet, so rows do not shift as the list scrolls.
     row.title = UI.Font(row, 12, T.text, nil, "LEFT")
-    row.title:SetPoint("TOPLEFT", 12, -5)
+    row.title:SetPoint("TOPLEFT", 30, -5)
     row.title:SetPoint("RIGHT", -80, 0)
 
     row.tag = UI.Font(row, 9, T.dim, nil, "RIGHT")
     row.tag:SetPoint("TOPRIGHT", -8, -6)
 
     row.detail = UI.Font(row, 11, T.dim, nil, "LEFT")
-    row.detail:SetPoint("TOPLEFT", 12, -21)
+    row.detail:SetPoint("TOPLEFT", 30, -21)
     row.detail:SetPoint("RIGHT", -8, 0)
     row.detail:SetHeight(28)
     row.detail:SetJustifyV("TOP")
 
     row.price = UI.Font(row, 11, T.accent, nil, "LEFT")
-    row.price:SetPoint("TOPLEFT", 12, -49)
+    row.price:SetPoint("TOPLEFT", 30, -49)
     row.price:SetPoint("RIGHT", -8, 0)
     row.price:Hide()
 
@@ -589,10 +640,41 @@ local function CreateUpgradeRow(list)
 end
 
 local function FillUpgradeRowText(row, item)
+    -- A section heading is the same pooled row, drawn plainly. Everything that
+    -- belongs to an item is hidden rather than left showing stale text from
+    -- whichever item this row displayed before it scrolled.
+    if item.isHeader then
+        row.stripe:SetColorTexture(T.accent[1], T.accent[2], T.accent[3], 1)
+        row.title:SetText(item.label or "")
+        row.title:SetTextColor(unpack(T.accent))
+        row.tag:SetText("")
+        row.detail:SetText("")
+        row.icon:Hide()
+        row.isHeader = true
+        return
+    end
+
+    if row.isHeader then
+        -- Coming back from being a heading, restore the normal title colour.
+        row.title:SetTextColor(unpack(T.text))
+        row.isHeader = false
+    end
+
     local c = ((item.delta and item.delta > 0) or (not item.delta and (item.gain or 0) > 0)) and T.good or T.dim
     row.stripe:SetColorTexture(c[1], c[2], c[3], 1)
     row.title:SetText(format("%s, item level %d", item.name or "Unknown item", item.ilvl or 0))
     row.tag:SetText(SOURCE_LABEL[item.source and item.source.kind] or "")
+
+    -- Every row here is an item, so every row gets one. When the client has
+    -- not cached this item's icon yet, ITEM_CACHE_UPDATED already triggers a
+    -- ShowSlot() refresh (see below), which rebuilds this row with the icon
+    -- once it resolves.
+    if item.icon then
+        row.icon:SetTexture(item.icon)
+        row.icon:Show()
+    else
+        row.icon:Hide()
+    end
 
     local detail = (item.source and item.source.detail) or ""
     if item.noSpecData then

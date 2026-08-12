@@ -415,9 +415,13 @@ local function AnalyzeFight(fightEnd, live)
     if not profile then return nil end
 
     local findings = {}
-    local function Add(sev, title, detail, fix, pct)
+    -- icon is optional: only findings tied to one specific spell (matched to
+    -- its profile entry below) carry one. The fight-wide findings further
+    -- down, resource state, pet uptime, dead time, are not about a single
+    -- spell and are never given one.
+    local function Add(sev, title, detail, fix, pct, icon)
         findings[#findings + 1] = {
-            sev = sev, title = title, detail = detail, fix = fix, pct = pct,
+            sev = sev, title = title, detail = detail, fix = fix, pct = pct, icon = icon,
         }
     end
 
@@ -460,7 +464,7 @@ local function AnalyzeFight(fightEnd, live)
                                 format("It was not %s at any point after you started attacking (%s).",
                                        where, ns.FmtTime(windowDur)),
                                 "This is a keep it up button. Apply it at the start and refresh it when it drops.",
-                                0)
+                                0, entry.icon)
                         else
                             -- It was cast, it just never stuck. That is a very
                             -- different, much fairer story than "never up".
@@ -472,7 +476,7 @@ local function AnalyzeFight(fightEnd, live)
                                     or format("You cast it %d time%s but it was not %s for long.",
                                                attempts, attempts == 1 and "" or "s", where),
                                 "Check you are not overwriting it with a weaker application, or refresh it the moment it drops.",
-                                0)
+                                0, entry.icon)
                         end
                     elseif pct < 0.60 then
                         local detail = format("Present %s for roughly %s of the %s since you started attacking.",
@@ -485,13 +489,13 @@ local function AnalyzeFight(fightEnd, live)
                             format("%s up only %d percent of the time", entry.name, ns.Round(pct * 100)),
                             detail,
                             "Refresh it as soon as it falls off. Every second it is missing is damage you simply do not do.",
-                            pct)
+                            pct, entry.icon)
                     elseif pct < 0.85 then
                         Add(SEV.WARN,
                             format("%s up %d percent of the time", entry.name, ns.Round(pct * 100)),
                             format("Close, but it dropped %s during the fight.", where),
                             "Refresh a moment earlier and this becomes full uptime.",
-                            pct)
+                            pct, entry.icon)
                     end
                 end
 
@@ -507,7 +511,7 @@ local function AnalyzeFight(fightEnd, live)
                         entry.name .. " was never used",
                         "It was available the whole fight and never pressed.",
                         "That is free damage or healing sitting unused on your bars.",
-                        0)
+                        0, entry.icon)
                 elseif missed >= 2 and pct < 0.70 then
                     local detail = format("A %d second cooldown across %s allows roughly %d casts.",
                                            entry.cd, ns.FmtTime(dur), expected)
@@ -519,7 +523,7 @@ local function AnalyzeFight(fightEnd, live)
                         format("%s used %d of about %d times", entry.name, n, expected),
                         detail,
                         "Press it again as soon as it comes back up.",
-                        pct)
+                        pct, entry.icon)
                 end
 
             elseif entry.kind == "core" then
@@ -530,7 +534,7 @@ local function AnalyzeFight(fightEnd, live)
                         entry.name .. " was never pressed",
                         "Your spec treats this as a main button and it saw zero casts.",
                         "Check your action bars and your keybinds.",
-                        0)
+                        0, entry.icon)
                 end
             end
         end
@@ -845,18 +849,29 @@ local function CreateFindingRow(list)
     row.stripe:SetPoint("BOTTOMLEFT", 0, 4)
     row.stripe:SetWidth(2)
 
+    -- Created once, only ever re-textured in UpdateFindingRow. This list is
+    -- pooled the same way CoachUI's slot list is, so a texture created inside
+    -- the update path would leak one per scroll event.
+    row.icon = row:CreateTexture(nil, "ARTWORK")
+    row.icon:SetSize(18, 18)
+    row.icon:SetPoint("TOPLEFT", 6, -5)
+    row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+    -- Text always starts 24px in (18px icon plus a 6px gap, matching
+    -- CoachUI's slot rows), whether or not a given finding has a spell icon
+    -- to show, so rows do not shift as the list scrolls.
     row.title = UI.Font(row, 12, T.text, nil, "LEFT")
-    row.title:SetPoint("TOPLEFT", 12, -6)
+    row.title:SetPoint("TOPLEFT", 30, -6)
     row.title:SetPoint("RIGHT", -8, 0)
 
     row.detail = UI.Font(row, 11, T.dim, nil, "LEFT")
-    row.detail:SetPoint("TOPLEFT", 12, -23)
+    row.detail:SetPoint("TOPLEFT", 30, -23)
     row.detail:SetPoint("RIGHT", -8, 0)
     row.detail:SetHeight(24)
     row.detail:SetJustifyV("TOP")
 
     row.fix = UI.Font(row, 11, T.accent, nil, "LEFT")
-    row.fix:SetPoint("TOPLEFT", 12, -48)
+    row.fix:SetPoint("TOPLEFT", 30, -48)
     row.fix:SetPoint("RIGHT", -8, 0)
     row.fix:SetHeight(24)
     row.fix:SetJustifyV("TOP")
@@ -869,6 +884,17 @@ local function UpdateFindingRow(row, f)
     row.title:SetText(f.title)
     row.detail:SetText(f.detail or "")
     row.fix:SetText(f.fix or "")
+
+    -- Only findings matched to one specific spell carry an icon (see Add() in
+    -- AnalyzeFight above). A spell whose icon has not resolved yet, or a
+    -- fight-wide finding like idle time or resource state, shows nothing
+    -- rather than a placeholder.
+    if f.icon then
+        row.icon:SetTexture(f.icon)
+        row.icon:Show()
+    else
+        row.icon:Hide()
+    end
 end
 
 function ShowFight(fight)
