@@ -14,7 +14,9 @@
 --      opposite answer. That judgement comes out of the stat weights in
 --      Data/StatWeights.lua where the spec has them, and out of the role on
 --      the Profiles.lua profile where it does not, rather than out of a
---      fourth hand written opinion about who wants what.
+--      fourth hand written opinion about who wants what. Two of those five
+--      roles turn out to be one label covering two different jobs, and both
+--      are split finer here. See the role section further down for which.
 --
 -- Burning Crusade rules this file exists to respect, all of which differ from
 -- vanilla, from retail, or from both:
@@ -40,6 +42,11 @@
 --   Elf only, but none of that is hardcoded here. The roster is read for who
 --   is actually standing there, which is correct on either faction and stays
 --   correct whatever the client decides in future.
+--
+--   Feral Combat is one talent tree covering two entirely different jobs, the
+--   bear who tanks and the cat who does damage, where retail splits them into
+--   two specialisations you can read off the character. No arrangement of
+--   talent points separates them, so the tree is not asked. The form is.
 --
 -- Nothing here scans auras on a timer. The answer is rebuilt only when your
 -- auras or the roster actually change, coalesced, and never more than four
@@ -114,8 +121,15 @@ local BUFF_SOURCES = {
           gives = { "stamina" },
           ids = { 1243, 21562 },
           why = "Extra health. There is no reason to fight without it." },
+        -- Spirit only, not manaRegen. Spirit regen is switched off for five
+        -- seconds every time you spend mana, so it is worth what a healer's
+        -- spirit weight says it is worth and close to nothing to anybody who
+        -- never stops spending. Tagging it as mana coming back was putting it
+        -- level with Blessing of Wisdom in front of a tank, which it is not:
+        -- Wisdom keeps paying while you cast and this does not. The sentence
+        -- below already said so.
         { key = "spirit", minLevel = 30, scope = "raid",
-          gives = { "spirit", "manaRegen" },
+          gives = { "spirit" },
           ids = { 14752, 27681 },
           why = "Regenerates your mana faster between casts." },
         { key = "shadowprot", minLevel = 30, scope = "raid", situational = true,
@@ -269,11 +283,20 @@ local CLASS_LABEL = {
 --   weighs intellect at 0.05, which is exactly what stops this file asking a
 --   paladin for Wisdom on a hunter's behalf.
 --
---   Role, off the Profiles.lua profile, covers the other eighteen specs and
---   also sits under the weights as a floor, so a shadow priest whose weight
---   table lists no mana stat at all is still told that Wisdom is worth having.
+--   Role, off the Profiles.lua profile and refined below, covers the other
+--   eighteen specs and also sits under the weights as a floor, so a shadow
+--   priest whose weight table lists no mana stat at all is still told that
+--   Wisdom is worth having.
 --
--- Both are read live, so respeccing changes the answer without a reload.
+-- The floor is why a spec with weights can still be told about a buff its
+-- weights are silent on. A weight answers "how good is one point of this on
+-- an item", which is a different question from "do you want this buff", and
+-- it has nothing at all to say about armor, threat, or heals landing harder.
+-- Where the two disagree the buff question wins, because that is the question
+-- being asked.
+--
+-- Both are read live, so respeccing changes the answer without a reload, and
+-- so does shifting form.
 -- ---------------------------------------------------------------------------
 local WANT_THRESHOLD = 0.25   -- below this the buff is not worth the line of text
 local UNKNOWN_WANT   = 0.5    -- no profile built yet: say everything rather than nothing
@@ -303,7 +326,26 @@ local WEIGHT_KEYS = {
     -- ITEM_MOD_ARMOR for the same reason, see audit finding 6 in that file.
 }
 
--- Roles come from Profiles.lua and cover all 27 specs.
+-- Roles come from Profiles.lua and cover all 27 specs. Two of the five are
+-- one label covering two different jobs, so this table carries seven rows and
+-- ResolveRole below picks between them. Profiles.lua itself is left alone:
+-- other files read its role for other questions and the API hands it back
+-- verbatim, so the refinement lives here and nothing outside this file sees
+-- it.
+--
+--   tank        Protection warrior, and the safe answer for anything else
+--               that tanks. Rage, weapon swings, and being hit.
+--   spellTank   Protection paladin. Threat is holy spell damage out of Holy
+--               Shield, Consecration, Avenger's Shield and Judgement, not out
+--               of the weapon, which is StatWeights.lua's own conclusion in
+--               its Protection paladin hard rules. Wrath of Air is therefore
+--               a threat buff to them, Windfury very nearly is not, and
+--               Blessing of Might is the wrong thing to spend a paladin's one
+--               blessing on. Mana is the other half: a Protection paladin out
+--               of mana stops making threat entirely.
+--   bearTank    A feral druid in bear form. Rage powered like the warrior,
+--               but agility is the avoidance stat, no weapon effect ever
+--               procs off a form, and nothing in bear form costs mana.
 local ROLE_WANTS = {
     melee = {
         attackPower = 1,   strength = 0.9,  agility = 0.85, stamina = 0.6,
@@ -319,12 +361,36 @@ local ROLE_WANTS = {
         allStats = 1,      armor = 0.2,     threatDown = 0.6, tankThreat = 0,
         healingTaken = 0.1, healing = 0.3,  resistance = 0.3,
     },
-    tank = {
+    tank = {  -- Protection warrior, and the fallback for any other tank
         attackPower = 0.5, strength = 0.7,  agility = 0.6,  stamina = 1,
         intellect = 0.4,   spirit = 0.1,    manaRegen = 0.6, spellPower = 0.2,
         spellHit = 0.1,    crit = 0.4,      spellCrit = 0.1, meleeWeapon = 0.8,
         allStats = 1,      armor = 1,       threatDown = 0,  tankThreat = 0.7,
         healingTaken = 1,  healing = 0.6,   resistance = 0.6,
+    },
+    -- Protection paladin. Attack power sits under the threshold on purpose:
+    -- it moves only the small white damage share of paladin threat, and
+    -- leaving it above the line is what put Blessing of Might in front of a
+    -- tank. Mana outranks spell damage because a paladin with an empty bar
+    -- casts nothing at all, and spell damage outranks every avoidance stat a
+    -- buff can hand out because it is the threat stat.
+    spellTank = {
+        attackPower = 0.2, strength = 0.3,  agility = 0.4,  stamina = 1,
+        intellect = 0.5,   spirit = 0.15,   manaRegen = 0.7, spellPower = 0.6,
+        spellHit = 0.35,   crit = 0.3,      spellCrit = 0.35, meleeWeapon = 0.2,
+        allStats = 1,      armor = 1,       threatDown = 0,  tankThreat = 0.7,
+        healingTaken = 1,  healing = 0.6,   resistance = 0.6,
+    },
+    -- Feral druid in bear form. Threat is attack power and rage, so Might is
+    -- the right blessing here and Wisdom is not, which is the exact opposite
+    -- of the paladin above. Agility is the avoidance stat rather than a
+    -- damage one, and mana only ever pays for shifting back out.
+    bearTank = {
+        attackPower = 0.55, strength = 0.6, agility = 0.9,  stamina = 1,
+        intellect = 0.15,  spirit = 0.05,   manaRegen = 0.15, spellPower = 0,
+        spellHit = 0,      crit = 0.5,      spellCrit = 0,  meleeWeapon = 0,
+        allStats = 1,      armor = 1,       threatDown = 0,  tankThreat = 0.7,
+        healingTaken = 1,  healing = 0.6,   resistance = 0.5,
     },
     healer = {
         attackPower = 0,   strength = 0,    agility = 0.05, stamina = 0.5,
@@ -356,6 +422,65 @@ local CLASS_TAG_ZERO = {
     DRUID = { meleeWeapon = true },
 }
 
+-- ---------------------------------------------------------------------------
+-- which role this character is really playing
+--
+-- Profiles.lua hands back one of five roles for all 27 specs and it is right
+-- about 25 of them. The two it cannot be right about are resolved here.
+--
+--   A Protection paladin and a Protection warrior are both "tank" and want
+--   almost opposite things out of a shaman and a paladin. That one is settled
+--   by the class, which is never in doubt.
+--
+--   Feral Combat is one tree doing two jobs, so Profiles.lua calls the whole
+--   tree "melee" and a bear tank was being handed a cat's answer. There is no
+--   honest way to read tanking intent out of talent points, so the form is
+--   used instead. It is the thing the druid actually did rather than a guess
+--   about what they meant, it is already in the list of buffs this file
+--   scans, and shifting fires UNIT_AURA, which is the same event that
+--   invalidates this answer. So the advice follows a druid in and out of bear
+--   with no extra plumbing and no timer.
+--
+--   A feral druid standing in caster form has said nothing either way, and
+--   the honest answer to that is the tree's own, so nothing is overridden.
+--   That is a real limit rather than a solved problem: buff a druid while
+--   they are out of form and they get the cat answer, which is the one the
+--   tree supports.
+-- ---------------------------------------------------------------------------
+local BEAR_FORM_IDS = { 5487, 9634 }   -- Bear Form, Dire Bear Form
+
+local bearFormNames
+local function BearFormNames()
+    if bearFormNames then return bearFormNames end
+    local t = {}
+    for i = 1, #BEAR_FORM_IDS do
+        local n = ns.SpellName(BEAR_FORM_IDS[i])
+        if n then t[n] = true end
+    end
+    -- Only cached once something resolved, so a spell API that was not ready
+    -- yet is asked again next time instead of being remembered as empty.
+    if next(t) then bearFormNames = t end
+    return t
+end
+
+-- Set once per rebuild, from the same buff list the rest of the check uses.
+local activeRole
+
+local function ResolveRole(have)
+    local prof = ns.activeProfile
+    local role = prof and prof.role
+    if not role then return nil end
+
+    local cls = ns.playerClass
+    if role == "tank" and cls == "PALADIN" then return "spellTank" end
+    if role == "melee" and cls == "DRUID" then
+        for name in pairs(BearFormNames()) do
+            if have[name] then return "bearTank" end
+        end
+    end
+    return role
+end
+
 local function WeightScore(tag)
     local sw = ns.STAT_WEIGHTS
     local prof = ns.activeProfile
@@ -376,9 +501,10 @@ local function WeightScore(tag)
     return best
 end
 
+-- No profile yet, or a role with no table behind it, means nothing is known
+-- rather than nothing is wanted, so the permissive answer stands.
 local function RoleScore(tag)
-    local prof = ns.activeProfile
-    local t = prof and prof.role and ROLE_WANTS[prof.role]
+    local t = activeRole and ROLE_WANTS[activeRole]
     if not t then return UNKNOWN_WANT end
     return t[tag] or 0
 end
@@ -527,6 +653,9 @@ local function Build()
     if not next(present) then return missing, optional end
 
     local have = PlayerBuffNames(buffScratch)
+    -- Settled once, before anything is scored, because a druid's form is one
+    -- of the buffs that was just read and every score below depends on it.
+    activeRole = ResolveRole(have)
     wipe(slotFilled)
     wipe(slotUsed)
     wipe(poolScratch)

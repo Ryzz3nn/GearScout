@@ -65,6 +65,22 @@
 --      and ignored the common raid buffed case. Reworded below to state the
 --      unbuffed number and the buffed number (79 rating with Improved
 --      Faerie Fire and Heroic Presence) side by side.
+--   8. Hand edit, from the pass that checked group buff advice across all 27
+--      specs. No number in this file was touched. EXCLUDED named only
+--      WARRIOR and DRUID, which reads as though Rogue, Shaman, Mage and
+--      Warlock were covered, when in truth they are absent from this file
+--      entirely and always have been. All four are now named, so the "no
+--      data" sentence ItemEval.lua shows a player is the truth about that
+--      class rather than its generic fallback wording.
+--      Deliberately not done in the same pass: adding weights for the
+--      eighteen specs that have none. Buffs.lua asks a different question of
+--      this file than ItemEval.lua does, "which group buffs does this spec
+--      want" rather than "how good is one point of this stat", and it
+--      answers that from a plainly labelled role table when a spec has no
+--      weights. Writing eighteen precise looking weight tables from memory
+--      to fill the hole is the exact shape of the mistake finding 2 records.
+--      A labelled role based answer is worth more than a fabricated precise
+--      one.
 --
 -- Confidence markers were left exactly as the research pass reported them,
 -- with one exception: Paladin Protection was reported "high" but carried
@@ -224,10 +240,19 @@ SW.WEAPON_PROFICIENCY = {
 -- classes with no usable research yet
 -- ItemEval.lua must treat these, and any class or tab not present below at
 -- all, as "no data", and must say so plainly rather than guessing a score.
+--
+-- This list is the full set of classes missing from this file, not a subset.
+-- Six of the nine classes are here and only Hunter, Priest and Paladin have
+-- weights, which is nine specs out of twenty seven. Anything reading this
+-- file should assume no data by default and treat weights as the exception.
 -- ---------------------------------------------------------------------------
 SW.EXCLUDED = {
     WARRIOR = "Arms, Fury and Protection have no researched stat weights yet. The research pass ran out of search budget before reaching them.",
     DRUID   = "Balance, Feral Cat, Feral Bear and Restoration have no researched stat weights yet. The research pass could not find sources for them.",
+    ROGUE   = "Assassination, Combat and Subtlety have no researched stat weights yet. The research pass never reached the class.",
+    SHAMAN  = "Elemental, Enhancement and Restoration have no researched stat weights yet. The research pass never reached the class.",
+    MAGE    = "Arcane, Fire and Frost have no researched stat weights yet. The research pass never reached the class.",
+    WARLOCK = "Affliction, Demonology and Destruction have no researched stat weights yet. The research pass never reached the class.",
 }
 
 -- ---------------------------------------------------------------------------
