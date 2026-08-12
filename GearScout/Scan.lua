@@ -138,6 +138,70 @@ local RawGetItemStats = _G.GetItemStats or (C_Item and C_Item.GetItemStats)
 ns.hasItemStats = RawGetItemStats ~= nil
 
 local statsCache = {}
+-- ---------------------------------------------------------------------------
+-- equip effect stats
+--
+-- GetItemStats reports what the item carries as a base stat. It does not
+-- report anything granted by an "Equip:" line, because those are spell
+-- effects rather than stats on the item record. On low level gear that is
+-- often the entire value of the item: Signet Ring of the Hand is nothing but
+-- "Equip: Improves critical strike rating by 2" and "Equip: Increases attack
+-- power by 4", so it scored zero and any ring with a stray point of intellect
+-- looked like an upgrade over it.
+--
+-- Only lines beginning with Equip are read. Set bonuses and Use effects are
+-- deliberately skipped: neither is active just because the item is worn.
+-- ---------------------------------------------------------------------------
+local EQUIP_PATTERNS = {
+    -- Longest first. "damage and healing" also contains "healing", so the
+    -- wrong order would file spell power as healing power.
+    { "damage and healing done by magical spells and effects by up to (%d+)", "ITEM_MOD_SPELL_POWER" },
+    { "healing done by magical spells and effects by up to (%d+)",            "ITEM_MOD_SPELL_HEALING_DONE_SHORT" },
+    { "attack power by (%d+)",           "ITEM_MOD_ATTACK_POWER_SHORT" },
+    { "critical strike rating by (%d+)", "ITEM_MOD_CRIT_RATING_SHORT" },
+    { "hit rating by (%d+)",             "ITEM_MOD_HIT_RATING_SHORT" },
+    { "haste rating by (%d+)",           "ITEM_MOD_HASTE_RATING_SHORT" },
+    { "expertise rating by (%d+)",       "ITEM_MOD_EXPERTISE_RATING_SHORT" },
+    { "defense rating by (%d+)",         "ITEM_MOD_DEFENSE_SKILL_RATING_SHORT" },
+    { "dodge rating by (%d+)",           "ITEM_MOD_DODGE_RATING_SHORT" },
+    { "parry rating by (%d+)",           "ITEM_MOD_PARRY_RATING_SHORT" },
+    { "block rating by (%d+)",           "ITEM_MOD_BLOCK_RATING_SHORT" },
+    { "resilience rating by (%d+)",      "ITEM_MOD_RESILIENCE_RATING_SHORT" },
+    { "Restores (%d+) mana per 5 sec",   "ITEM_MOD_MANA_REGENERATION" },
+}
+
+local scanTip
+local function EquipEffectStats(link)
+    if not link then return nil end
+    if not scanTip then
+        local ok = pcall(function()
+            scanTip = CreateFrame("GameTooltip", "GearScoutStatScanTooltip", nil, "GameTooltipTemplate")
+            scanTip:SetOwner(UIParent, "ANCHOR_NONE")
+        end)
+        if not ok or not scanTip then return nil end
+    end
+
+    scanTip:ClearLines()
+    if not pcall(scanTip.SetHyperlink, scanTip, link) then return nil end
+
+    local found
+    for i = 2, scanTip:NumLines() do
+        local fs = _G["GearScoutStatScanTooltipTextLeft" .. i]
+        local text = fs and fs:GetText()
+        if text and text:find("Equip:", 1, true) then
+            for _, pat in ipairs(EQUIP_PATTERNS) do
+                local n = text:match(pat[1])
+                if n then
+                    found = found or {}
+                    found[pat[2]] = (found[pat[2]] or 0) + (tonumber(n) or 0)
+                    break   -- one stat per line, so stop at the first match
+                end
+            end
+        end
+    end
+    return found
+end
+
 function ns.GetStats(link)
     if not link or not RawGetItemStats then return nil end
     local cached = statsCache[link]
@@ -150,6 +214,16 @@ function ns.GetStats(link)
     else
         local ok2, res2 = pcall(RawGetItemStats, link)
         if ok2 and type(res2) == "table" then t = res2 end
+    end
+
+    -- Fill gaps only. If GetItemStats already reported a stat, the same points
+    -- are on the tooltip line too, and adding them again would double it.
+    local extra = EquipEffectStats(link)
+    if extra then
+        t = t or {}
+        for k, v in pairs(extra) do
+            if not t[k] then t[k] = v end
+        end
     end
 
     statsCache[link] = t or false
