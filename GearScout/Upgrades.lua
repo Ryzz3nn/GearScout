@@ -132,7 +132,7 @@ local TIER_HEADING = {
 -- its heavier armor there is nothing to be penalised against at all.
 -- ---------------------------------------------------------------------------
 local function CanEquip(link, itemID)
-    local scan = ns.lastScan
+    local scan = ns.Subject().scan
     local level = (scan and scan.level) or (UnitLevel and UnitLevel("player")) or 0
 
     local okInfo, _, _, _, _, reqLevel = pcall(GetItemInfo, itemID)
@@ -402,7 +402,7 @@ end
 -- ---------------------------------------------------------------------------
 local function EvaluateSlot(slotID)
     local def = ns.SLOT_BY_ID and ns.SLOT_BY_ID[slotID]
-    local scan = ns.lastScan
+    local scan = ns.Subject().scan
 
     local result = {
         slotID = slotID,
@@ -536,7 +536,7 @@ ns:Sub("ITEM_CACHE_UPDATED", InvalidateSlotCache)
 -- Same widget kit and layout idiom as Rotation.lua: a left hand list that
 -- selects, a right hand panel that explains. The left list only ever shows
 -- what is already free to know, the slot name and what is currently worn
--- there, straight from ns.lastScan. Working out how many upgrades exist is
+-- there, straight from the subject scan. Working out how many upgrades exist is
 -- real work, so it only happens for the slot actually selected, never for
 -- all seventeen slots on every redraw.
 -- ---------------------------------------------------------------------------
@@ -580,7 +580,7 @@ end
 local function UpdateSlotRow(row, def)
     row.name:SetText(def.label)
 
-    local scan = ns.lastScan
+    local scan = ns.Subject().scan
     local rec = scan and scan.bySlotID[def.id]
     if rec and not rec.empty then
         row.sub:SetText(format("%s, item level %d", rec.name or "Equipped item", rec.ilvl or 0))

@@ -558,8 +558,8 @@ end
 -- ---------------------------------------------------------------------------
 local function Refresh()
     if not win or not win:IsShown() then return end
-    local report = ns.lastReport
-    local scan = ns.lastScan
+    local subject = ns.Subject()
+    local report, scan = subject.report, subject.scan
     if not report or not scan then return end
 
     scoreGrade:SetText(report.grade)
@@ -606,6 +606,9 @@ end
 
 ns:Sub("SCAN_UPDATED", function() ns.Analyze() Refresh() end)
 ns:Sub("ROTATION_UPDATED", Refresh)
+-- Redraw only. Analyze would recompute the player's own gear, which is not
+-- what is on screen once the window is pointed at someone else.
+ns:Sub("SUBJECT_CHANGED", Refresh)
 
 -- ---------------------------------------------------------------------------
 -- window assembly
@@ -666,13 +669,34 @@ local function Build()
     return win
 end
 
+-- Show without toggling. The officer console needs this: clicking a second
+-- player while the window is already open must swap whose data is on screen,
+-- not close the window the player was reading.
+function ns.ShowMain()
+    Build()
+    -- Closing the window hands it back to the player. Without this, reopening
+    -- it later would silently show someone else's gear as if it were yours,
+    -- which is the one mistake here that would actually mislead somebody.
+    if not win.subjectHooked then
+        win.subjectHooked = true
+        win:HookScript("OnHide", function()
+            if not ns.SubjectIsSelf() then ns.SetSubject(nil) end
+        end)
+    end
+    win:Show()
+    if ns.SubjectIsSelf() and not ns.lastReport then ns.Evaluate() end
+    Refresh()
+end
+
 function ns.ToggleMain()
     Build()
     if win:IsShown() then
         win:Hide()
     else
         win:Show()
-        if not ns.lastReport then ns.Evaluate() end
+        -- Only ever evaluate the player themselves. Someone else's report
+        -- arrived over the wire and cannot be recomputed from this client.
+        if ns.SubjectIsSelf() and not ns.lastReport then ns.Evaluate() end
         Refresh()
     end
 end
@@ -737,12 +761,13 @@ SlashCmdList.GEARSCOUT = function(msg)
     elseif msg == "where" then
         -- Manual for now. It walks the whole dungeon loot table, which is
         -- cheap but pointless to run on every gear change when nobody asked.
-        if not ns.FindSlotUpgrades or not ns.lastReport then
+        local subject = ns.Subject()
+        if not ns.FindSlotUpgrades or not subject.report then
             ns.Print("Nothing scanned yet. Try /gearscout scan first.")
             return
         end
         local weakest, weakestIlvl
-        for _, rec in ipairs(ns.lastScan and ns.lastScan.slots or {}) do
+        for _, rec in ipairs(subject.scan and subject.scan.slots or {}) do
             if not rec.empty and rec.ilvl and (not weakestIlvl or rec.ilvl < weakestIlvl) then
                 weakest, weakestIlvl = rec, rec.ilvl
             end

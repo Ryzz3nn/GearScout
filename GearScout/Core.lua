@@ -435,6 +435,42 @@ ns:On("PLAYER_LEVEL_UP", function(level)
     ns.playerLevel = level or UnitLevel("player")
 end)
 
+-- ---------------------------------------------------------------------------
+-- subject
+-- Whose data the window is drawing. Normally the player's own, but the officer
+-- console can point it at a decoded report from someone else. Every drawing
+-- path reads through here, so there is exactly one place that decides this and
+-- no screen can end up half showing two different people.
+--
+-- The self case reuses one table rather than building a fresh one, because
+-- this is called from row fill functions that run while a list is scrolling.
+-- ---------------------------------------------------------------------------
+local selfSubject = { isSelf = true }
+
+ns.subject = nil   -- nil means the player themselves
+
+function ns.Subject()
+    if ns.subject then return ns.subject end
+    selfSubject.name   = ns.playerName
+    selfSubject.class  = ns.playerClass
+    selfSubject.level  = ns.playerLevel
+    selfSubject.report = ns.lastReport
+    selfSubject.scan   = ns.lastScan
+    selfSubject.fights = ns.GetFights and ns.GetFights() or nil
+    return selfSubject
+end
+
+-- Passing nil hands the window back to the player. The officer console calls
+-- that on close, so nobody is left staring at a stale roster entry.
+function ns.SetSubject(s)
+    ns.subject = s
+    ns:Emit("SUBJECT_CHANGED")
+end
+
+function ns.SubjectIsSelf()
+    return ns.subject == nil
+end
+
 -- Public handle. GearScout_Lead reaches the shared code through this table and
 -- through nothing else, which keeps the two addons independently installable.
 _G.GearScout = ns

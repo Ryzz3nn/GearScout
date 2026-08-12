@@ -110,6 +110,20 @@ end)
 -- One compact line per equipped slot. The lead rebuilds a real item link from
 -- these numbers, so tooltips work without sending any strings.
 -- ---------------------------------------------------------------------------
+-- A fight rarely produces more than a handful of findings, but the cap means a
+-- pathological one cannot turn a single reply into a hundred chunked messages.
+local MAX_SHARED_FINDINGS = 12
+
+-- The two separators the envelope relies on can both appear in generated
+-- prose, so they are removed rather than escaped: losing a semicolon from a
+-- sentence costs nothing, mis-parsing the record costs the whole reply.
+local function Clean(s)
+    if s == nil then return "" end
+    s = tostring(s)
+    s = s:gsub("[;\t\n\r]", " ")
+    return s
+end
+
 local function BuildPayload()
     -- Refresh if the cached scan is stale.
     if not ns.lastReport or not ns.lastScan
@@ -154,6 +168,26 @@ local function BuildPayload()
                 "r", f.spec or "", ns.Round((f.deadPct or 0) * 100),
                 ns.Round(f.cpm or 0), crit, ns.Round(f.dur or 0),
             }, ":")
+
+            -- The findings themselves, so the console can show the list the
+            -- player actually sees rather than five summary numbers.
+            --
+            -- Sent as text, unlike gear, which travels as item IDs. The
+            -- wording here is generated from the sender's own spec, level and
+            -- fight, none of which the far side has. Regenerating it there
+            -- would risk an officer reading different advice than the player
+            -- did for the same pull, and advice that disagrees with itself is
+            -- worse than none.
+            --
+            -- Tab separated because both the record separator and the field
+            -- separator occur naturally in prose.
+            for i = 1, min(#f.findings, MAX_SHARED_FINDINGS) do
+                local x = f.findings[i]
+                parts[#parts + 1] = table.concat({
+                    "n:" .. (x.sev or 0) .. ":" .. ns.Round((x.pct or 0) * 100),
+                    Clean(x.title), Clean(x.detail), Clean(x.fix), Clean(x.icon),
+                }, "\t")
+            end
         end
     end
 
@@ -343,6 +377,20 @@ function Comm.DecodePayload(payload)
             out.missingEnchants = tonumber(ench) or 0
             out.emptySockets = tonumber(sockets) or 0
             out.emptySlots = tonumber(empty) or 0
+        elseif kind == "n" then
+            local head, title, detail, fix, icon = strsplit("\t", record)
+            local _, sev, pct = strsplit(":", head)
+            out.findings = out.findings or {}
+            out.findings[#out.findings + 1] = {
+                sev    = tonumber(sev) or 0,
+                pct    = (tonumber(pct) or 0) / 100,
+                title  = title,
+                detail = detail,
+                fix    = fix,
+                -- Sent as text, but the field is a numeric file ID for most
+                -- icons, and the texture API treats "123" and 123 differently.
+                icon   = tonumber(icon) or (icon ~= "" and icon or nil),
+            }
         elseif kind == "r" then
             local _, spec, dead, cpm, crit, dur = strsplit(":", record)
             out.rotation = {

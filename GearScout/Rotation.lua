@@ -1043,12 +1043,21 @@ function ns.BuildRotationPage(page)
     emptyMsg:SetText("No fights recorded yet. Pull something for at least five seconds and it will show up here.")
 
     RefreshList = function(liveTick)
-        local fights = ns.GetFights()
+        local subject = ns.Subject()
+        local fights = subject.fights or {}
         wipe(displayList)
-        if liveReport then displayList[1] = liveReport end
+        -- The live row is this player's own fight in progress. It means
+        -- nothing while the window is pointed at someone else, and showing it
+        -- there would quietly mix two people's data in one list.
+        if liveReport and subject.isSelf then displayList[1] = liveReport end
         for i = 1, #fights do
             displayList[#displayList + 1] = fights[i]
         end
+
+        emptyMsg:SetText(subject.isSelf
+            and "No fights recorded yet. Pull something for at least five seconds and it will show up here."
+            or format("%s has not shared any fights yet. They need to fight something with rotation sharing turned on.",
+                      subject.name or "This player"))
 
         fightList:SetData(displayList, liveTick)
         if #displayList == 0 then ShowFight(nil) return end
@@ -1134,3 +1143,12 @@ function ns.PrintRotationDebug()
             e.known and "known" or "not learned yet"))
     end
 end
+
+-- RefreshList is a file local assigned during page construction, so this only
+-- does anything once the rotation page has actually been built.
+ns:Sub("SUBJECT_CHANGED", function()
+    if RefreshList then
+        selectedIndex = 1
+        RefreshList()
+    end
+end)
