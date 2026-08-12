@@ -708,8 +708,13 @@ function ns.ShowMain()
     Refresh()
 end
 
+-- The player's own way in, from the minimap button and from /gearscout. It
+-- always shows the player themselves: if the window was last pointed at
+-- someone else through the officer console and left that way, opening it from
+-- here means "show me", never "show whoever I looked at last".
 function ns.ToggleMain()
     Build()
+    if not ns.SubjectIsSelf() then ns.SetSubject(nil) end
     if win:IsShown() then
         win:Hide()
     else
@@ -738,9 +743,9 @@ ns:Sub("DB_READY", function()
                 local leadAddon = _G.GearScoutLead
                 if button == "RightButton" and leadAddon and leadAddon.Toggle then
                     leadAddon.Toggle()
-                else
-                    ns.ToggleMain()
+                    return
                 end
+                ns.ToggleMain()
             end,
             function(_, tip)
                 tip:SetText("GearScout", 1, 1, 1)
