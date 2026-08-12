@@ -217,7 +217,21 @@ end
 
 -- An upgrade this small is noise. It matches on a loading screen and gets
 -- undone the next time the player is bored, so it is not worth the interruption.
+-- Item level is the fallback, not the measure. It is only consulted when the
+-- player's spec has no stat weights to judge with.
 local MIN_ILVL_GAIN = 3
+
+-- Percent better, so the bar means the same thing at level 27 and level 70.
+local MIN_SCORE_GAIN = 3
+
+-- Score an item for this player's own spec. Passing nil as the spec key lets
+-- ItemEval resolve the player's class and talent tab itself. Returns nil when
+-- that spec has no stat weight data, which is the signal to fall back to item
+-- level rather than to invent a comparison.
+local function ScoreOf(link)
+    if not link or not ns.ScoreItem then return nil end
+    return (ns.ScoreItem(link, nil))
+end
 
 -- ---------------------------------------------------------------------------
 -- the scan
@@ -262,20 +276,52 @@ function ns.GetBagUpgrades()
                         -- slots. For rings and trinkets that is the two paired slots;
                         -- for a one handed weapon that already dual wields it is
                         -- whichever hand carries the weaker weapon.
-                        local weakestSlot, weakestIlvl
+                        -- Judged on what the stats are worth to this spec, not
+                        -- on item level. By item level a cloth shoulder with
+                        -- intellect and spirit beats a leather one with agility,
+                        -- which is exactly backwards for a hunter, and is what
+                        -- this used to recommend.
+                        local candScore = ScoreOf(meta.link or link)
+
+                        local weakestSlot, weakestIlvl, weakestScore
                         for _, sid in ipairs(targetSlots) do
                             if IsUsable(scan, meta, extra, sid) then
                                 local rec = scan.bySlotID[sid]
-                                local curIlvl = (rec and not rec.empty) and (rec.ilvl or 0) or 0
-                                if not weakestIlvl or curIlvl < weakestIlvl then
-                                    weakestIlvl, weakestSlot = curIlvl, sid
+                                local empty = (not rec) or rec.empty
+                                local curIlvl = (not empty) and (rec.ilvl or 0) or 0
+                                -- An empty slot scores zero, so anything with
+                                -- a positive score beats it.
+                                local curScore = (not empty) and ScoreOf(rec.link) or 0
+
+                                local worse
+                                if candScore and curScore then
+                                    worse = (weakestScore == nil) or (curScore < weakestScore)
+                                else
+                                    worse = (weakestIlvl == nil) or (curIlvl < weakestIlvl)
+                                end
+                                if worse then
+                                    weakestSlot, weakestIlvl, weakestScore = sid, curIlvl, curScore
                                 end
                             end
                         end
 
                         if weakestSlot then
-                            local gain = (meta.ilvl or 0) - weakestIlvl
-                            if gain >= MIN_ILVL_GAIN then
+                            local gain, gainKind
+                            if candScore and weakestScore then
+                                if weakestScore > 0 then
+                                    gain = (candScore - weakestScore) / weakestScore * 100
+                                else
+                                    -- Nothing equipped there, so any item with
+                                    -- stats worth having is a clear gain.
+                                    gain = (candScore > 0) and 100 or 0
+                                end
+                                gainKind = "score"
+                            else
+                                gain = (meta.ilvl or 0) - weakestIlvl
+                                gainKind = "ilvl"
+                            end
+
+                            if gain >= ((gainKind == "score") and MIN_SCORE_GAIN or MIN_ILVL_GAIN) then
                                 local def = ns.SLOT_BY_ID[weakestSlot]
                                 local record = {
                                     bag          = bag,
@@ -291,6 +337,9 @@ function ns.GetBagUpgrades()
                                     slotLabel    = def and def.label or "Unknown",
                                     equippedIlvl = weakestIlvl,
                                     gain         = gain,
+                                    gainKind     = gainKind,
+                                    score        = candScore,
+                                    equippedScore = weakestScore,
                                 }
 
                                 local existing = bestIndex[itemID]
@@ -322,6 +371,20 @@ end
 -- ---------------------------------------------------------------------------
 -- one issue row, shaped exactly like the ones ns.Analyze() in Rules.lua adds
 -- ---------------------------------------------------------------------------
+-- States why the item is better in the same terms it was actually judged by,
+-- so the sentence never claims a stat comparison that was never made.
+local function GainPhrase(top)
+    if top.gainKind == "score" then
+        if (top.equippedScore or 0) <= 0 then
+            return "you have nothing equipped in that slot at all"
+        end
+        return format("its stats are worth about %d%% more to your spec than what you have on",
+                      ns.Round(top.gain or 0))
+    end
+    return format("it is item level %d against the item level %d you have on now",
+                  top.ilvl or 0, top.equippedIlvl or 0)
+end
+
 function ns.GetBagUpgradeIssue()
     local upgrades = ns.GetBagUpgrades()
     if not upgrades or #upgrades == 0 then return nil end
@@ -333,8 +396,8 @@ function ns.GetBagUpgradeIssue()
 
     if #upgrades == 1 then
         title = "You are carrying an upgrade for your " .. slotName .. " in your bags"
-        detail = format("%s is item level %d. What you have equipped there is item level %d, so this is a real upgrade sitting unused.",
-                         top.name or "This item", top.ilvl, top.equippedIlvl)
+        detail = format("%s is worth putting on: %s.",
+                         top.name or "This item", GainPhrase(top))
         fix = "Open your bags, right click " .. (top.name or "the item") .. ", and put it on."
         if top.bank then
             fix = fix .. " It is in your bank, so you need to be at the bank to reach it."
@@ -342,8 +405,8 @@ function ns.GetBagUpgradeIssue()
     else
         local restCount = #upgrades - 1
         title = format("You are carrying %d upgrades in your bags", #upgrades)
-        detail = format("The best one is %s, item level %d for your %s, where you currently have item level %d. There %s %d more upgrade%s sitting in your bags.",
-                         top.name or "an item", top.ilvl, slotName, top.equippedIlvl,
+        detail = format("The best one is %s for your %s: %s. There %s %d more upgrade%s sitting in your bags.",
+                         top.name or "an item", slotName, GainPhrase(top),
                          restCount == 1 and "is" or "are", restCount, restCount == 1 and "" or "s")
         fix = format("Start with %s for your %s. Open your bags and right click it to equip it.",
                       top.name or "the best one", slotName)
